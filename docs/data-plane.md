@@ -42,9 +42,9 @@ TCP owner rows are matched by the full local/remote five-tuple. UDP owner rows a
 
 `linkroute_service::windivert::run_packet_pump` is the tested loop boundary. It receives packet bytes and `WINDIVERT_ADDRESS` metadata, calls a `PacketHandler`, drops packets with `PacketDisposition::Drop`, recalculates checksums for rewritten packets, and sends complete packets back through WinDivert.
 
-`run_network_packet_pump` opens the WinDivert Network layer with `LINKROUTE_NETWORK_FILTER` and delegates to the generic pump. `ControllerPacketHandler` adapts `ServiceController::process_packet` to the pump by resolving process context first, then mapping forwarded, dropped, and rewritten route outcomes to packet dispositions. `run_controller_network_packet_pump` combines the WinDivert Network pump, `ServiceController`, wall-clock timestamps, and `WindowsProcessResolver` for the SCM service entry point.
+`run_network_packet_pump` opens the WinDivert Network layer with `LINKROUTE_NETWORK_FILTER` and delegates to the generic pump. `ControllerPacketHandler` adapts a mutable `ServiceController` to the pump by resolving process context first, then mapping forwarded, dropped, and rewritten route outcomes to packet dispositions. `SharedControllerPacketHandler` performs the same work through `Arc<Mutex<ServiceController>>`, which is the shape needed for the SCM service to serve IPC and run the packet worker concurrently. `run_controller_network_packet_pump` combines the WinDivert Network pump, `ServiceController`, wall-clock timestamps, and `WindowsProcessResolver` for the SCM service entry point.
 
-The remaining service lifecycle work is to run this pump from the SCM-hosted service and stop it cleanly on shutdown/pause/swap/uninstall.
+The Windows service loop already owns the controller through a shared handle for future worker concurrency. The remaining service lifecycle work is to start the packet worker from the SCM-hosted service and stop it cleanly on shutdown/pause/swap/uninstall.
 
 ## Verification
 

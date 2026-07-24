@@ -4,6 +4,7 @@ mod platform {
     use std::mem::size_of;
     use std::ptr;
     use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     const SERVICE_NAME: &str = "LinkRoute";
@@ -100,15 +101,19 @@ mod platform {
     }
 
     fn run_service_body() -> Result<(), String> {
-        let mut controller = crate::start_service_controller()?;
+        let controller = Arc::new(Mutex::new(crate::start_service_controller()?));
         set_status(SERVICE_RUNNING, 0, 0, 0);
 
         while !STOP_REQUESTED.load(Ordering::SeqCst) {
-            let _ = crate::serve_control_pipe_once(&controller, Duration::from_millis(250));
+            let _ = crate::serve_control_pipe_once_shared(&controller, Duration::from_millis(250));
         }
 
         set_status(SERVICE_STOP_PENDING, 0, 1, 3000);
-        controller.stop()
+        let stop_result = controller
+            .lock()
+            .map_err(|_| String::from("service controller lock is poisoned"))?
+            .stop();
+        stop_result
     }
 
     unsafe extern "system" fn service_control_handler(

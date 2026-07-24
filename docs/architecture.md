@@ -100,7 +100,7 @@ The Inno Setup installer calls those commands during install and uninstall. The 
 
 `linkroute_core::ipc` defines the versioned JSON request/response protocol shared by the UI and service. The primary local transport is `\\.\pipe\LinkRouteControl`, a message-mode named pipe created by the service. The UI waits briefly for the pipe and falls back to `linkroute-service --handle-request-file <path>` when the service is not running, which keeps local development commands usable.
 
-The service pipe currently handles one request per pipe instance. `GetStatus` is answered from the running service controller so `backend_running` reflects the SCM-hosted service. Config-changing commands still persist through `ConfigStore`; applying those mutations directly to the active packet backend will land with the real packet loop.
+The service pipe currently handles one request per pipe instance. `GetStatus` is answered from the running service controller so `backend_running` reflects the SCM-hosted service. The SCM service body now keeps the controller behind a shared lock so a packet worker can run beside the pipe loop. Config-changing commands still persist through `ConfigStore`; applying those mutations directly to the active packet backend will land with the real packet loop.
 
 `linkroute-service --serve-pipe-once` is a development command that starts the backend scaffold, serves one pipe request, and exits. It exists for local IPC validation without registering a Windows service.
 

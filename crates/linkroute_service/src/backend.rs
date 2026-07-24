@@ -9,7 +9,7 @@ pub struct BackendStatus {
     pub active_flows: usize,
 }
 
-pub trait CaptureBackend {
+pub trait CaptureBackend: Send {
     fn name(&self) -> &'static str;
     fn start(&mut self, config: &RouteConfig) -> Result<(), String>;
     fn stop(&mut self) -> Result<(), String>;

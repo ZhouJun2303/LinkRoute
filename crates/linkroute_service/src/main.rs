@@ -101,6 +101,25 @@ pub(crate) fn serve_control_pipe_once(
     })
 }
 
+pub(crate) fn serve_control_pipe_once_shared(
+    controller: &std::sync::Arc<std::sync::Mutex<ServiceController>>,
+    timeout: Duration,
+) -> Result<bool, String> {
+    let store = ConfigStore::program_data();
+    named_pipe::serve_once(timeout, |request| match request {
+        IpcRequest::GetStatus => match controller.lock() {
+            Ok(controller) => runtime_status_response(&controller, &store),
+            Err(_) => IpcResponse::Error {
+                error: linkroute_core::IpcError::new(
+                    "controller-lock-poisoned",
+                    "service controller lock is poisoned",
+                ),
+            },
+        },
+        other => handle_ipc_request(&store, other),
+    })
+}
+
 fn runtime_status_response(controller: &ServiceController, store: &ConfigStore) -> IpcResponse {
     let windivert_ready =
         WindivertProbe::probe_near_exe().map(|probe| probe.ready()).unwrap_or(false);

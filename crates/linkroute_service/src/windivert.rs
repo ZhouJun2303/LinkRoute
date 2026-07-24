@@ -2,6 +2,7 @@ pub mod runtime;
 pub use runtime::WindivertRuntime;
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::backend::{BackendStatus, CaptureBackend};
@@ -223,11 +224,70 @@ where
             process_context.explicit_domain,
         )?;
 
-        Ok(match outcome {
-            PacketRouteOutcome::Forwarded { .. } => PacketDisposition::ForwardUnchanged,
-            PacketRouteOutcome::Dropped { .. } => PacketDisposition::Drop,
-            PacketRouteOutcome::Rewritten { .. } => PacketDisposition::ForwardRecalculateChecksums,
-        })
+        Ok(packet_disposition(outcome))
+    }
+}
+
+#[allow(dead_code)]
+pub struct SharedControllerPacketHandler<F, R = NoopProcessResolver> {
+    controller: Arc<Mutex<ServiceController>>,
+    now_epoch_seconds: F,
+    process_resolver: R,
+}
+
+#[allow(dead_code)]
+impl<F> SharedControllerPacketHandler<F, NoopProcessResolver> {
+    pub fn new(controller: Arc<Mutex<ServiceController>>, now_epoch_seconds: F) -> Self {
+        Self::with_process_resolver(controller, now_epoch_seconds, NoopProcessResolver)
+    }
+}
+
+#[allow(dead_code)]
+impl<F, R> SharedControllerPacketHandler<F, R> {
+    pub fn with_process_resolver(
+        controller: Arc<Mutex<ServiceController>>,
+        now_epoch_seconds: F,
+        process_resolver: R,
+    ) -> Self {
+        Self { controller, now_epoch_seconds, process_resolver }
+    }
+}
+
+impl<F, R> PacketHandler for SharedControllerPacketHandler<F, R>
+where
+    F: FnMut() -> u64,
+    R: PacketProcessResolver,
+{
+    fn handle_packet(
+        &mut self,
+        packet: &mut [u8],
+        direction: PacketDirection,
+    ) -> Result<PacketDisposition, String> {
+        let now_epoch_seconds = (self.now_epoch_seconds)();
+        let process_context = self.process_resolver.resolve_packet(packet, direction);
+        let mut controller = self
+            .controller
+            .lock()
+            .map_err(|_| String::from("service controller lock is poisoned"))?;
+        let outcome = controller.process_packet(
+            now_epoch_seconds,
+            packet,
+            direction,
+            process_context.process_id,
+            process_context.exe_path,
+            process_context.explicit_domain,
+        )?;
+
+        Ok(packet_disposition(outcome))
+    }
+}
+
+#[allow(dead_code)]
+fn packet_disposition(outcome: PacketRouteOutcome) -> PacketDisposition {
+    match outcome {
+        PacketRouteOutcome::Forwarded { .. } => PacketDisposition::ForwardUnchanged,
+        PacketRouteOutcome::Dropped { .. } => PacketDisposition::Drop,
+        PacketRouteOutcome::Rewritten { .. } => PacketDisposition::ForwardRecalculateChecksums,
     }
 }
 
@@ -312,6 +372,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::fs;
     use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::{Arc, Mutex};
 
     use crate::backend::{BackendStatus, CaptureBackend};
     use crate::process_context::{FlowContextCache, PacketProcessContext};
@@ -323,7 +384,7 @@ mod tests {
 
     use super::{
         run_packet_pump, ControllerPacketHandler, PacketDisposition, PacketHandler, PacketIo,
-        WindivertAddress, WindivertProbe,
+        SharedControllerPacketHandler, WindivertAddress, WindivertProbe,
     };
 
     #[test]
@@ -418,6 +479,30 @@ mod tests {
         assert_eq!(parsed.source_addr, IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9)));
     }
 
+    #[test]
+    fn shared_controller_packet_handler_locks_controller_for_packet_processing() {
+        let mut controller = controller_with_app_rule(Outlet::Ethernet);
+        controller.set_adapters(sample_adapters(), sample_selection());
+        controller.start().unwrap();
+        let controller = Arc::new(Mutex::new(controller));
+
+        let mut process_cache = FlowContextCache::default();
+        process_cache.insert(
+            sample_flow_key(),
+            PacketProcessContext::new(4242, Some(String::from(r"C:\Apps\browser.exe")), None),
+        );
+        let mut handler = SharedControllerPacketHandler::with_process_resolver(
+            Arc::clone(&controller),
+            || 100,
+            process_cache,
+        );
+        let mut packet = sample_ipv4_tcp_packet();
+
+        let disposition = handler.handle_packet(&mut packet, PacketDirection::Outbound).unwrap();
+
+        assert_eq!(disposition, PacketDisposition::ForwardRecalculateChecksums);
+        assert_eq!(controller.lock().unwrap().flow_count(), 1);
+    }
     fn controller_with_app_rule(outlet: Outlet) -> crate::control::ServiceController {
         let mut config = RouteConfig::enabled();
         config

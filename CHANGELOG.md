@@ -18,7 +18,7 @@ All notable changes to LinkRoute will be documented in this file.
 - Service config persistence under `%ProgramData%\LinkRoute` with invalid-config backup.
 - Versioned IPC request/response JSON helpers shared by service and UI.
 - Service IPC command handler for status, config, enable, pause, swap, and diagnostics.
-- Windows service dispatcher plus install, start, stop, and uninstall commands.
+- Windows service dispatcher plus install, start, stop, uninstall commands, and shared controller ownership for future concurrent IPC plus packet processing.
 - ACL-restricted named-pipe IPC transport for local UI-to-service requests.
 - Inno Setup hooks that register/start the service during install and stop/delete it during uninstall.
 - UI fallback bridge that invokes the service command handler through request files when the pipe is unavailable.

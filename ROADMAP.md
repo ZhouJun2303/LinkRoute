@@ -19,7 +19,7 @@ Completed scaffold:
 Remaining:
 
 - Wire the WinDivert Network packet pump into the SCM-hosted service lifecycle.
-- Feed the Windows process resolver into the SCM-hosted packet loop and add real dual-NIC validation.
+- Start the packet worker from the SCM-hosted service and add real dual-NIC validation.
 - Validate TCP, UDP, and QUIC on a real Ethernet + Wi-Fi machine.
 
 ## Milestone 2: Local Service
@@ -30,6 +30,7 @@ Completed scaffold:
 - Service install, start, stop, and uninstall commands.
 - Installer hooks that register and start the service.
 - ACL-restricted named-pipe IPC for request/response UI commands.
+- SCM service controller ownership through a shared handle so IPC and packet processing can run concurrently.
 - Windows adapter enumeration through `GetAdaptersAddresses`, including source-address selection and virtual adapter filtering.
 
 Remaining:
