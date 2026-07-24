@@ -127,7 +127,7 @@ impl FlowDescriptor {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkState {
     pub ethernet_up: bool,
     pub wifi_up: bool,

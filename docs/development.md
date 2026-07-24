@@ -19,6 +19,7 @@ cargo build --workspace --release
 .\target\debug\linkroute-service.exe --self-test
 .\target\debug\linkroute-service.exe --probe-windivert
 .\target\debug\linkroute-service.exe --load-windivert
+.\target\debug\linkroute-service.exe --status-json
 ```
 
 ## Build Installer
@@ -33,3 +34,4 @@ cargo build --workspace --release
 ## Current Architecture Boundary
 
 `linkroute_core` is safe Rust and must remain free of `unsafe`. Windows API and WinDivert FFI are confined to service-side modules.
+

@@ -73,4 +73,12 @@ executes the service decision pipeline without opening the real driver.
 configuration loads defaults. Invalid TOML or semantically invalid rules are
 renamed to a timestamped backup and the service recovers with defaults. Saves
 validate the config before writing and keep the previous config as a backup.
+## IPC Protocol
+
+`linkroute_core::ipc` defines the versioned JSON request/response protocol shared
+by the UI and service. The current diagnostic command
+`linkroute-service --status-json` emits an `IpcResponse::Status` payload. The
+next service milestone will move the same payloads over an ACL-restricted named
+pipe so the UI can read status, update config, enable/pause routing, swap
+outlets, check updates, and export diagnostics without administrator rights.
 

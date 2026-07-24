@@ -5,6 +5,7 @@ pub mod config;
 pub mod dns;
 pub mod engine;
 pub mod flow;
+pub mod ipc;
 pub mod model;
 pub mod normalize;
 
@@ -13,6 +14,10 @@ pub use config::{ConfigIssue, RouteConfig};
 pub use dns::{DnsCache, DnsRecord};
 pub use engine::RouteEngine;
 pub use flow::{FlowKey, FlowRecord, FlowTable};
+pub use ipc::{
+    request_from_json, response_to_json, AdapterSnapshot, IpcError, IpcRequest, IpcResponse,
+    ServiceSnapshot, IPC_PROTOCOL_VERSION,
+};
 pub use model::{
     ApplicationRule, DecisionSource, DomainMatchMode, DomainRule, FlowDescriptor, LinkState,
     Outlet, Protocol, RouteAction, RouteDecision,

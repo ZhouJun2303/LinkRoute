@@ -4,8 +4,9 @@ use std::net::IpAddr;
 
 use crate::backend::{BackendStatus, CaptureBackend};
 use linkroute_core::{
-    AdapterInventory, AdapterSelection, DnsCache, FlowDescriptor, FlowKey, FlowRecord, FlowTable,
-    LinkState, RouteConfig, RouteDecision, RouteEngine,
+    AdapterInventory, AdapterSelection, AdapterSnapshot, DnsCache, FlowDescriptor, FlowKey,
+    FlowRecord, FlowTable, LinkState, Outlet, RouteConfig, RouteDecision, RouteEngine,
+    ServiceSnapshot,
 };
 
 pub struct ServiceController {
@@ -118,6 +119,43 @@ impl ServiceController {
         self.backend.status()
     }
 
+    pub fn snapshot(
+        &self,
+        service_version: impl Into<String>,
+        windivert_ready: bool,
+    ) -> ServiceSnapshot {
+        let status = self.backend.status();
+        ServiceSnapshot {
+            protocol_version: linkroute_core::ipc::IPC_PROTOCOL_VERSION,
+            service_version: service_version.into(),
+            enabled: self.engine.config().enabled,
+            backend_name: status.name.to_string(),
+            backend_running: status.running,
+            active_flows: self.flows.len(),
+            link_state: self.links,
+            adapters: self
+                .adapters
+                .adapters()
+                .iter()
+                .map(|adapter| AdapterSnapshot {
+                    id: adapter.id.clone(),
+                    name: adapter.name.clone(),
+                    kind: adapter.kind,
+                    outlet: if adapter.is_candidate_for(Outlet::Ethernet) {
+                        Some(Outlet::Ethernet)
+                    } else if adapter.is_candidate_for(Outlet::Wifi) {
+                        Some(Outlet::Wifi)
+                    } else {
+                        None
+                    },
+                    interface_index: adapter.interface_index,
+                    up: adapter.up,
+                    physical: adapter.physical,
+                })
+                .collect(),
+            windivert_ready,
+        }
+    }
     pub fn flow_count(&self) -> usize {
         self.flows.len()
     }

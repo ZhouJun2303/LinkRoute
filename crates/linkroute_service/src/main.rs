@@ -7,7 +7,10 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use config_store::{ConfigSource, ConfigStore};
 use control::ServiceController;
-use linkroute_core::{ApplicationRule, FlowKey, Outlet, Protocol, RouteAction, RouteConfig};
+use linkroute_core::{
+    response_to_json, ApplicationRule, FlowKey, IpcResponse, Outlet, Protocol, RouteAction,
+    RouteConfig,
+};
 use windivert::{WindivertBackend, WindivertProbe, WindivertRuntime};
 
 fn main() {
@@ -17,6 +20,7 @@ fn main() {
         "--run" => run_service(),
         "--check-config" => check_config(),
         "--write-default-config" => write_default_config(),
+        "--status-json" => status_json(),
         "--probe-windivert" => probe_windivert(),
         "--load-windivert" => load_windivert(),
         "--self-test" => self_test(),
@@ -24,7 +28,7 @@ fn main() {
         other => {
             eprintln!("unknown command: {other}");
             eprintln!(
-                "usage: linkroute-service [--run|--check-config|--write-default-config|--probe-windivert|--load-windivert|--self-test|--version]"
+                "usage: linkroute-service [--run|--check-config|--write-default-config|--status-json|--probe-windivert|--load-windivert|--self-test|--version]"
             );
             std::process::exit(2);
         }
@@ -94,6 +98,30 @@ fn report_config_source(source: &ConfigSource, backup_path: Option<&std::path::P
     }
 }
 
+fn status_json() {
+    let store = ConfigStore::program_data();
+    let loaded = match store.load_or_default() {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            eprintln!("could not load config: {error}");
+            std::process::exit(1);
+        }
+    };
+    let controller = ServiceController::new(loaded.config, Box::new(WindivertBackend::new()));
+    let windivert_ready =
+        WindivertProbe::probe_near_exe().map(|probe| probe.ready()).unwrap_or(false);
+    let response = IpcResponse::Status {
+        status: controller.snapshot(env!("CARGO_PKG_VERSION"), windivert_ready),
+    };
+
+    match response_to_json(&response) {
+        Ok(json) => println!("{json}"),
+        Err(error) => {
+            eprintln!("could not serialize status: {error}");
+            std::process::exit(1);
+        }
+    }
+}
 fn probe_windivert() {
     match WindivertProbe::probe_near_exe() {
         Ok(probe) if probe.ready() => {
