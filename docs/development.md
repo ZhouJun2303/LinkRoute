@@ -29,6 +29,15 @@ Remove-Item -LiteralPath .\request.json -Force
 .\target\debug\linkroute-ui.exe --status
 ```
 
+Validate the named-pipe transport without installing the service:
+
+```powershell
+$server = Start-Process -FilePath .\target\debug\linkroute-service.exe -ArgumentList --serve-pipe-once -WindowStyle Hidden -PassThru
+Start-Sleep -Milliseconds 500
+.\target\debug\linkroute-ui.exe --status-json
+$server.WaitForExit(15000)
+```
+
 Run service install commands only from an elevated shell and only when you intend to change the local machine:
 
 ```powershell

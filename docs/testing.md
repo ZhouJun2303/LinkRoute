@@ -18,6 +18,28 @@
 - UI bridge path resolution and status summary formatting.
 - Update manifest parsing and signature verification.
 
+## Manual IPC Checks
+
+Validate process fallback:
+
+```powershell
+.\target\debug\linkroute-ui.exe --status-json
+```
+
+Validate named-pipe transport:
+
+```powershell
+$serverOut = 'D:\tmp\linkroute-pipe-server.out'
+$serverErr = 'D:\tmp\linkroute-pipe-server.err'
+$server = Start-Process -FilePath .\target\debug\linkroute-service.exe -ArgumentList --serve-pipe-once -WindowStyle Hidden -PassThru -RedirectStandardOutput $serverOut -RedirectStandardError $serverErr
+Start-Sleep -Milliseconds 500
+.\target\debug\linkroute-ui.exe --status-json
+$server.WaitForExit(15000)
+Get-Content -LiteralPath $serverOut
+```
+
+The named-pipe status response should include `"backend_running":true`; fallback status usually shows `false` because it is handled by a short-lived command process.
+
 ## Manual Service Checks
 
 Run from an elevated shell on a disposable test machine:

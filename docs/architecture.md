@@ -4,7 +4,7 @@
 
 - `linkroute_core`: shared rule, config, validation, normalization, IPC, and routing decision logic.
 - `linkroute_service`: privileged Windows service. It owns packet capture, DNS observation, adapter monitoring, configuration writes, status publishing, and update orchestration.
-- `linkroute_ui`: native desktop UI and tray entry point. It does not need administrator rights during normal operation once the LocalSystem service transport is wired.
+- `linkroute_ui`: native desktop UI and tray entry point. It does not need administrator rights during normal operation once the LocalSystem service is installed and the named pipe is reachable.
 - `linkroute_updater`: small bootstrap executable that verifies and applies downloaded release packages.
 
 ## Routing Model
@@ -37,6 +37,7 @@ The backend trait in `linkroute_service` is intentionally narrow so a future WFP
 
 - No root certificate is installed.
 - HTTPS is not intercepted.
+- The control pipe DACL allows LocalSystem, Administrators, and the active interactive user class.
 - Update manifests are planned to be verified with an embedded Ed25519 public key before installation.
 - Service and updater traffic is excluded from managed routing to avoid loops.
 
@@ -75,11 +76,13 @@ The Inno Setup installer calls those commands during install and uninstall. The 
 
 ## IPC Protocol
 
-`linkroute_core::ipc` defines the versioned JSON request/response protocol shared by the UI and service. The service currently exposes this protocol through `linkroute-service --handle-request-file <path>` and diagnostic shortcuts such as `--status-json`.
+`linkroute_core::ipc` defines the versioned JSON request/response protocol shared by the UI and service. The primary local transport is `\\.\pipe\LinkRouteControl`, a message-mode named pipe created by the service. The UI waits briefly for the pipe and falls back to `linkroute-service --handle-request-file <path>` when the service is not running, which keeps local development commands usable.
 
-`linkroute_ui::ServiceBridge` is the temporary bootstrap transport. It serializes a request to a short-lived temp file, invokes the sibling `linkroute-service.exe`, and parses the standard `IpcResponse`. This keeps the UI behavior and command handling testable while the final named-pipe service transport is still being built.
+The service pipe currently handles one request per pipe instance. `GetStatus` is answered from the running service controller so `backend_running` reflects the SCM-hosted service. Config-changing commands still persist through `ConfigStore`; applying those mutations directly to the active packet backend will land with the real packet loop.
 
-The next service milestone will move the same payloads over an ACL-restricted named pipe so the UI can read status, update config, enable/pause routing, swap outlets, check updates, and export diagnostics without relying on process launches.
+`linkroute-service --serve-pipe-once` is a development command that starts the backend scaffold, serves one pipe request, and exits. It exists for local IPC validation without registering a Windows service.
+
+The next service milestone is live status streaming so the tray can update without polling.
 
 ## Native UI Shell
 

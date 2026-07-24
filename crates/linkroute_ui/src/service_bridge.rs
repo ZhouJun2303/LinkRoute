@@ -9,6 +9,8 @@ use linkroute_core::{
     ServiceSnapshot,
 };
 
+use crate::named_pipe_client;
+
 const SERVICE_EXE_NAME: &str = "linkroute-service.exe";
 
 #[derive(Debug, Clone)]
@@ -47,6 +49,16 @@ impl ServiceBridge {
     pub fn send(&self, request: IpcRequest) -> Result<IpcResponse, ServiceBridgeError> {
         let json = request_to_json(&request)
             .map_err(|error| ServiceBridgeError::Json(error.to_string()))?;
+
+        if let Ok(Some(response_text)) = named_pipe_client::send_request_json(&json) {
+            return parse_response(&response_text);
+        }
+
+        let response_text = self.send_process_json(&json)?;
+        parse_response(&response_text)
+    }
+
+    fn send_process_json(&self, json: &str) -> Result<String, ServiceBridgeError> {
         let request_path = temp_request_path();
         fs::write(&request_path, json.as_bytes()).map_err(|error| ServiceBridgeError::Io {
             action: "write request",
@@ -73,15 +85,8 @@ impl ServiceBridge {
             });
         }
 
-        let stdout = String::from_utf8(output.stdout)
-            .map_err(|error| ServiceBridgeError::Json(error.to_string()))?;
-        let response = response_from_json(stdout.trim())
-            .map_err(|error| ServiceBridgeError::Json(error.to_string()))?;
-
-        match response {
-            IpcResponse::Error { error } => Err(ServiceBridgeError::Service(error)),
-            other => Ok(other),
-        }
+        String::from_utf8(output.stdout)
+            .map_err(|error| ServiceBridgeError::Json(error.to_string()))
     }
 
     pub fn status(&self) -> Result<ServiceSnapshot, ServiceBridgeError> {
@@ -190,6 +195,15 @@ pub fn status_text(status: &ServiceSnapshot) -> String {
         if status.link_state.vpn_active { "active" } else { "inactive" },
         status.active_flows
     )
+}
+
+fn parse_response(text: &str) -> Result<IpcResponse, ServiceBridgeError> {
+    let response = response_from_json(text.trim())
+        .map_err(|error| ServiceBridgeError::Json(error.to_string()))?;
+    match response {
+        IpcResponse::Error { error } => Err(ServiceBridgeError::Service(error)),
+        other => Ok(other),
+    }
 }
 
 fn yes_no(value: bool) -> &'static str {

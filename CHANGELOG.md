@@ -13,8 +13,9 @@ All notable changes to LinkRoute will be documented in this file.
 - Versioned IPC request/response JSON helpers shared by service and UI.
 - Service IPC command handler for status, config, enable, pause, swap, and diagnostics.
 - Windows service dispatcher plus install, start, stop, and uninstall commands.
+- ACL-restricted named-pipe IPC transport for local UI-to-service requests.
 - Inno Setup hooks that register/start the service during install and stop/delete it during uninstall.
-- Lightweight UI bridge that invokes the service command handler through request files.
+- UI fallback bridge that invokes the service command handler through request files when the pipe is unavailable.
 - Native Win32 tray shell with status, diagnostics, enable/pause, swap, exit, and global hotkeys.
 - WinDivert asset download, SHA-256 verification, installer packaging, DLL probing, and dynamic symbol loading.
 - Release packaging for installer SHA-256, update manifest, and signature placeholder files.
@@ -24,6 +25,6 @@ All notable changes to LinkRoute will be documented in this file.
 ### Not Complete Yet
 
 - Real packet rewrite/NAT loop.
-- ACL-restricted named-pipe IPC and live service status streaming.
+- Live service status streaming.
 - Full rules/settings editor window.
 - Real release signing key integration.

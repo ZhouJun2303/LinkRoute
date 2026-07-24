@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{AdapterKind, LinkState, Outlet, RouteConfig};
 
 pub const IPC_PROTOCOL_VERSION: u32 = 1;
+pub const IPC_PIPE_NAME: &str = r"\\.\pipe\LinkRouteControl";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]

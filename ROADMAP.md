@@ -17,12 +17,13 @@ Completed scaffold:
 - Windows service dispatcher for SCM start/stop.
 - Service install, start, stop, and uninstall commands.
 - Installer hooks that register and start the service.
+- ACL-restricted named-pipe IPC for request/response UI commands.
 
 Remaining:
 
-- Replace the temporary process bridge with ACL-restricted named-pipe IPC.
-- Add live status streaming so tray state follows the running service.
+- Add live status streaming so tray state follows the running service without polling.
 - Add adapter enumeration through Windows APIs.
+- Apply enable/pause/swap directly to the running backend once the packet loop is active.
 
 ## Milestone 3: Native UI
 

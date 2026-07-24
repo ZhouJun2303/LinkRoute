@@ -2,19 +2,21 @@ mod backend;
 mod config_store;
 mod control;
 mod ipc_handler;
+mod named_pipe;
 mod windivert;
 mod windows_service;
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use config_store::{ConfigSource, ConfigStore};
 use control::ServiceController;
 use ipc_handler::handle_ipc_request;
 use linkroute_core::{
-    request_from_json, response_to_json, ApplicationRule, FlowKey, IpcResponse, Outlet, Protocol,
-    RouteAction, RouteConfig,
+    request_from_json, response_to_json, ApplicationRule, FlowKey, IpcRequest, IpcResponse, Outlet,
+    Protocol, RouteAction, RouteConfig,
 };
 use windivert::{WindivertBackend, WindivertProbe, WindivertRuntime};
 
@@ -30,6 +32,7 @@ fn main() {
         "--uninstall-service" => uninstall_service(),
         "--start-service" => start_service(),
         "--stop-service" => stop_service(),
+        "--serve-pipe-once" => serve_pipe_once(),
         "--check-config" => check_config(),
         "--write-default-config" => write_default_config(),
         "--status-json" => status_json(),
@@ -42,7 +45,7 @@ fn main() {
         other => {
             eprintln!("unknown command: {other}");
             eprintln!(
-                "usage: linkroute-service [--run|--run-service|--install-service|--uninstall-service|--start-service|--stop-service|--check-config|--write-default-config|--status-json|--handle-request-json <json>|--handle-request-file <path>|--probe-windivert|--load-windivert|--self-test|--version]"
+                "usage: linkroute-service [--run|--run-service|--install-service|--uninstall-service|--start-service|--stop-service|--serve-pipe-once|--check-config|--write-default-config|--status-json|--handle-request-json <json>|--handle-request-file <path>|--probe-windivert|--load-windivert|--self-test|--version]"
             );
             std::process::exit(2);
         }
@@ -84,6 +87,27 @@ pub(crate) fn start_service_controller() -> Result<ServiceController, String> {
     Ok(controller)
 }
 
+pub(crate) fn serve_control_pipe_once(
+    controller: &ServiceController,
+    timeout: Duration,
+) -> Result<bool, String> {
+    let store = ConfigStore::program_data();
+    named_pipe::serve_once(timeout, |request| match request {
+        IpcRequest::GetStatus => runtime_status_response(controller, &store),
+        other => handle_ipc_request(&store, other),
+    })
+}
+
+fn runtime_status_response(controller: &ServiceController, store: &ConfigStore) -> IpcResponse {
+    let windivert_ready =
+        WindivertProbe::probe_near_exe().map(|probe| probe.ready()).unwrap_or(false);
+    let mut status = controller.snapshot(env!("CARGO_PKG_VERSION"), windivert_ready);
+    if let Ok(loaded) = store.load_or_default() {
+        status.enabled = loaded.config.enabled;
+    }
+    IpcResponse::Status { status }
+}
+
 fn load_controller() -> Result<(ServiceController, ConfigSource, Option<PathBuf>), String> {
     let store = ConfigStore::program_data();
     let loaded = store.load_or_default().map_err(|error| error.to_string())?;
@@ -105,6 +129,27 @@ fn start_service() {
 
 fn stop_service() {
     exit_on_service_command(stop_service_command());
+}
+
+fn serve_pipe_once() {
+    let controller = match start_service_controller() {
+        Ok(controller) => controller,
+        Err(error) => {
+            eprintln!("could not start temporary pipe service: {error}");
+            std::process::exit(1);
+        }
+    };
+    match serve_control_pipe_once(&controller, Duration::from_secs(10)) {
+        Ok(true) => println!("control pipe request handled"),
+        Ok(false) => {
+            eprintln!("timed out waiting for control pipe request");
+            std::process::exit(1);
+        }
+        Err(error) => {
+            eprintln!("control pipe failed: {error}");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn install_service_command() -> Result<(), String> {

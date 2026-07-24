@@ -4,7 +4,6 @@ mod platform {
     use std::mem::size_of;
     use std::ptr;
     use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-    use std::thread;
     use std::time::Duration;
 
     const SERVICE_NAME: &str = "LinkRoute";
@@ -105,7 +104,7 @@ mod platform {
         set_status(SERVICE_RUNNING, 0, 0, 0);
 
         while !STOP_REQUESTED.load(Ordering::SeqCst) {
-            thread::sleep(Duration::from_millis(500));
+            let _ = crate::serve_control_pipe_once(&controller, Duration::from_millis(250));
         }
 
         set_status(SERVICE_STOP_PENDING, 0, 1, 3000);

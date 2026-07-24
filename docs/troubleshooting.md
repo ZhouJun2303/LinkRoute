@@ -45,20 +45,28 @@ If a previous development install is present, run:
 .\target\release\linkroute-service.exe --uninstall-service
 ```
 
-## `linkroute-ui --status-json` cannot start the service command
+## `linkroute-ui --status-json` cannot reach the named pipe
 
-Build the workspace first and make sure `linkroute-service.exe` is beside `linkroute-ui.exe`:
+The UI waits briefly for `\\.\pipe\LinkRouteControl`. If the pipe is not available, it falls back to the sibling service command. Check which service binary the UI would use:
 
 ```powershell
-cargo build --workspace
 .\target\debug\linkroute-ui.exe --service-path
 ```
 
-When running unit-test binaries from `target\debug\deps`, the UI bridge also checks one directory up for `target\debug\linkroute-service.exe`.
+Validate the pipe without installing the service:
+
+```powershell
+$server = Start-Process -FilePath .\target\debug\linkroute-service.exe -ArgumentList --serve-pipe-once -WindowStyle Hidden -PassThru
+Start-Sleep -Milliseconds 500
+.\target\debug\linkroute-ui.exe --status-json
+$server.WaitForExit(15000)
+```
+
+A pipe-backed response reports `"backend_running":true`.
 
 ## Mutating UI commands cannot write config
 
-`--enable`, `--pause`, `--toggle`, and `--swap` write `%ProgramData%\LinkRoute\config.toml` through the temporary service command bridge. Until the named-pipe service transport is wired, run from an elevated PowerShell if normal user permissions cannot write that location.
+`--enable`, `--pause`, `--toggle`, and `--swap` write `%ProgramData%\LinkRoute\config.toml`. If the named pipe is not available and the UI falls back to the temporary service command bridge, run from an elevated PowerShell if normal user permissions cannot write that location.
 
 ## Unsigned manifest fails verification
 

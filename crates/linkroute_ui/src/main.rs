@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod named_pipe_client;
 mod service_bridge;
 mod tray;
 
