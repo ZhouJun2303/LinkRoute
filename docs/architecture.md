@@ -50,6 +50,25 @@ The service scaffold now includes tested in-memory models that the packet backen
 
 `linkroute-service --probe-windivert` checks whether `WinDivert.dll` and `WinDivert64.sys` are beside the executable. `linkroute-service --self-test` executes the service decision pipeline without opening the real driver.
 
+## Windows Service Lifecycle
+
+`linkroute-service --run-service` runs under the Windows Service Control Manager. The service dispatcher registers a control handler, reports start-pending, running, stop-pending, and stopped states, and stops the backend when SCM sends stop or shutdown.
+
+The service scaffold can be installed, started, stopped, and removed with:
+
+```powershell
+linkroute-service.exe --install-service
+linkroute-service.exe --start-service
+linkroute-service.exe --stop-service
+linkroute-service.exe --uninstall-service
+```
+
+The Inno Setup installer calls those commands during install and uninstall. The installed service is named `LinkRoute` and uses this binary path shape:
+
+```text
+"<install-dir>\linkroute-service.exe" --run-service
+```
+
 ## Config Storage
 
 `ConfigStore` stores `config.toml` under `%ProgramData%\LinkRoute`. Missing configuration loads defaults. Invalid TOML or semantically invalid rules are renamed to a timestamped backup and the service recovers with defaults. Saves validate the config before writing and keep the previous config as a backup.

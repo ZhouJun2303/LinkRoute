@@ -8,6 +8,16 @@ Install Rust with rustup and restart PowerShell.
 
 Install Visual Studio Build Tools with the C++ workload and Windows SDK.
 
+## Inno Setup is not found
+
+Install Inno Setup 6 and rerun:
+
+```powershell
+.\scripts\build-installer.ps1
+```
+
+The script checks the usual per-user and Program Files install paths for `ISCC.exe`.
+
 ## `--probe-windivert` reports missing files
 
 Run:
@@ -19,6 +29,21 @@ Run:
 ## `--load-windivert` fails
 
 Check that `WinDivert.dll` is next to `linkroute-service.exe`. The command only loads the DLL and resolves symbols; real packet capture will also require administrator rights.
+
+## Service install fails
+
+Run from an elevated PowerShell. The service command uses `sc.exe` and registers this binary path:
+
+```text
+"<install-dir>\linkroute-service.exe" --run-service
+```
+
+If a previous development install is present, run:
+
+```powershell
+.\target\release\linkroute-service.exe --stop-service
+.\target\release\linkroute-service.exe --uninstall-service
+```
 
 ## `linkroute-ui --status-json` cannot start the service command
 
@@ -33,7 +58,7 @@ When running unit-test binaries from `target\debug\deps`, the UI bridge also che
 
 ## Mutating UI commands cannot write config
 
-`--enable`, `--pause`, `--toggle`, and `--swap` write `%ProgramData%\LinkRoute\config.toml` through the service command handler. Until the LocalSystem service is wired, run from an elevated PowerShell if normal user permissions cannot write that location.
+`--enable`, `--pause`, `--toggle`, and `--swap` write `%ProgramData%\LinkRoute\config.toml` through the temporary service command bridge. Until the named-pipe service transport is wired, run from an elevated PowerShell if normal user permissions cannot write that location.
 
 ## Unsigned manifest fails verification
 

@@ -36,6 +36,10 @@ impl ServiceController {
         self.backend.start(self.engine.config())
     }
 
+    pub fn stop(&mut self) -> Result<(), String> {
+        self.backend.stop()
+    }
+
     pub fn pause(&mut self) -> Result<(), String> {
         self.engine.config_mut().enabled = false;
         self.flows.clear_managed();

@@ -31,6 +31,10 @@ Name: "{group}\LinkRoute"; Filename: "{app}\linkroute-ui.exe"
 Name: "{autoprograms}\LinkRoute"; Filename: "{app}\linkroute-ui.exe"
 
 [Run]
+Filename: "{app}\linkroute-service.exe"; Parameters: "--install-service"; StatusMsg: "Installing LinkRoute service..."; Flags: runhidden waituntilterminated
+Filename: "{app}\linkroute-service.exe"; Parameters: "--start-service"; StatusMsg: "Starting LinkRoute service..."; Flags: runhidden waituntilterminated
 Filename: "{app}\linkroute-ui.exe"; Description: "Launch LinkRoute"; Flags: nowait postinstall skipifsilent
 
-
+[UninstallRun]
+Filename: "{app}\linkroute-service.exe"; Parameters: "--stop-service"; Flags: runhidden waituntilterminated; RunOnceId: "StopLinkRouteService"
+Filename: "{app}\linkroute-service.exe"; Parameters: "--uninstall-service"; Flags: runhidden waituntilterminated; RunOnceId: "DeleteLinkRouteService"

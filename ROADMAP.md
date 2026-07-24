@@ -12,7 +12,14 @@ This roadmap tracks the path from the current engineering scaffold to a usable W
 
 ## Milestone 2: Local Service
 
-- Install as a Windows service under `LocalSystem`.
+Completed scaffold:
+
+- Windows service dispatcher for SCM start/stop.
+- Service install, start, stop, and uninstall commands.
+- Installer hooks that register and start the service.
+
+Remaining:
+
 - Replace the temporary process bridge with ACL-restricted named-pipe IPC.
 - Add live status streaming so tray state follows the running service.
 - Add adapter enumeration through Windows APIs.

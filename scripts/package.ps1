@@ -9,6 +9,7 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
 $repository = if ($env:GITHUB_REPOSITORY) { $env:GITHUB_REPOSITORY } else { "ZhouJun2303/LinkRoute" }
 $tag = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v0.1.0" }
+$zeroSignature = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 
 Copy-Item -LiteralPath (Join-Path $root "README.md") -Destination (Join-Path $dist "README.md") -Force
 Copy-Item -LiteralPath (Join-Path $root "LICENSE") -Destination (Join-Path $dist "LICENSE") -Force
@@ -17,20 +18,24 @@ Copy-Item -LiteralPath (Join-Path $releaseDir "WinDivert.dll") -Destination (Joi
 Copy-Item -LiteralPath (Join-Path $releaseDir "WinDivert64.sys") -Destination (Join-Path $dist "WinDivert64.sys") -Force
 
 $installer = Join-Path $root "installer\output\LinkRouteSetup-x64.exe"
-if (Test-Path -LiteralPath $installer) {
-    Copy-Item -LiteralPath $installer -Destination (Join-Path $dist "LinkRouteSetup-x64.exe") -Force
-    $setupHash = (Get-FileHash -LiteralPath (Join-Path $dist "LinkRouteSetup-x64.exe") -Algorithm SHA256).Hash.ToLowerInvariant()
-} else {
-    $setupHash = "0000000000000000000000000000000000000000000000000000000000000000"
+if (-not (Test-Path -LiteralPath $installer)) {
+    & (Join-Path $PSScriptRoot "build-installer.ps1")
 }
+if (-not (Test-Path -LiteralPath $installer)) {
+    throw "Installer was not produced at $installer"
+}
+
+$distInstaller = Join-Path $dist "LinkRouteSetup-x64.exe"
+Copy-Item -LiteralPath $installer -Destination $distInstaller -Force
+$setupHash = (Get-FileHash -LiteralPath $distInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
+Set-Content -LiteralPath (Join-Path $dist "LinkRouteSetup-x64.exe.sha256") -Value "$setupHash  LinkRouteSetup-x64.exe" -Encoding ASCII
 
 $manifest = @"
 version = "$tag"
 url = "https://github.com/$repository/releases/download/$tag/LinkRouteSetup-x64.exe"
 sha256 = "$setupHash"
-signature = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+signature = "$zeroSignature"
 "@
 
 Set-Content -LiteralPath (Join-Path $dist "update-manifest.txt") -Value $manifest -Encoding ASCII
-
-
+Set-Content -LiteralPath (Join-Path $dist "update-manifest.txt.sig") -Value $zeroSignature -Encoding ASCII

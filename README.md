@@ -6,7 +6,7 @@ GitHub repository: https://github.com/ZhouJun2303/LinkRoute
 
 ## Current Status
 
-The repository currently contains a verified Rust workspace, routing rule engine, configuration store, service IPC handler, lightweight UI-to-service bridge, native Win32 tray shell, WinDivert asset pipeline, update manifest verifier, installer packaging, and release automation. Real packet rewrite/NAT, ACL-restricted named-pipe IPC, Windows service registration, and the full rules/settings editor are still under active development; see [ROADMAP.md](ROADMAP.md).
+The repository currently contains a verified Rust workspace, routing rule engine, configuration store, service IPC handler, Windows service registration commands, lightweight UI-to-service bridge, native Win32 tray shell, WinDivert asset pipeline, update manifest verifier, installer packaging, and release automation. Real packet rewrite/NAT, ACL-restricted named-pipe IPC, live service status streaming, and the full rules/settings editor are still under active development; see [ROADMAP.md](ROADMAP.md).
 
 ## What Works Now
 
@@ -17,10 +17,11 @@ The repository currently contains a verified Rust workspace, routing rule engine
 - `%ProgramData%\LinkRoute\config.toml` persistence with invalid-config backup.
 - Versioned JSON IPC request/response protocol shared by service and UI.
 - Service command handler for status, config, enable, pause, swap, and diagnostics.
+- Windows service registration, start, stop, and uninstall commands for the service scaffold.
 - Lightweight UI bridge plus Win32 tray menu and global hotkeys.
 - WinDivert download, SHA-256 verification, DLL/driver probing, and dynamic symbol loading.
 - Ed25519 update manifest parsing and signature verification.
-- Inno Setup installer build and GitHub Actions workflows.
+- Inno Setup installer build and GitHub Actions CI/release workflows.
 
 ## Build
 
@@ -45,6 +46,15 @@ Useful service checks:
 .\target\debug\linkroute-service.exe --status-json
 ```
 
+Service install commands require an elevated shell:
+
+```powershell
+.\target\release\linkroute-service.exe --install-service
+.\target\release\linkroute-service.exe --start-service
+.\target\release\linkroute-service.exe --stop-service
+.\target\release\linkroute-service.exe --uninstall-service
+```
+
 Useful UI checks:
 
 ```powershell
@@ -56,18 +66,17 @@ Useful UI checks:
 
 The tray menu supports status, diagnostics, enable/pause, swap, and exit. Global hotkeys are `Ctrl+Alt+L` for enable/pause and `Ctrl+Alt+S` for swapping Ethernet/Wi-Fi rule targets.
 
-`--write-default-config` and mutating UI commands write `%ProgramData%\LinkRoute\config.toml`; they may need an elevated shell on a normal Windows install until the LocalSystem service is wired.
+`--write-default-config` and mutating UI commands write `%ProgramData%\LinkRoute\config.toml`; they may need an elevated shell until the named-pipe service transport is wired.
 
 ## Package
 
 ```powershell
 cargo build --workspace --release
-.\scripts\fetch-windivert.ps1 -OutputDir .\target\release
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" .\installer\linkroute.iss
+.\scripts\build-installer.ps1
 .\scripts\package.ps1
 ```
 
-The `dist/` folder receives the installer, update manifest, licenses, and WinDivert runtime files.
+The `dist/` folder receives the installer, installer SHA-256 file, update manifest, manifest signature placeholder, licenses, and WinDivert runtime files.
 
 ## Documentation
 

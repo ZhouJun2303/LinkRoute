@@ -14,8 +14,21 @@
 - ConfigStore missing-file defaulting, TOML roundtrip, invalid-file backup, and validation errors.
 - IPC request/response JSON roundtrips.
 - Service IPC command handler for status, config, enable, pause, swap, and diagnostics.
+- Service install command string formatting.
 - UI bridge path resolution and status summary formatting.
 - Update manifest parsing and signature verification.
+
+## Manual Service Checks
+
+Run from an elevated shell on a disposable test machine:
+
+```powershell
+.\target\release\linkroute-service.exe --install-service
+.\target\release\linkroute-service.exe --start-service
+sc.exe query LinkRoute
+.\target\release\linkroute-service.exe --stop-service
+.\target\release\linkroute-service.exe --uninstall-service
+```
 
 ## Manual UI Checks
 

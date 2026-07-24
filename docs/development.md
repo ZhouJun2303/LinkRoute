@@ -29,6 +29,15 @@ Remove-Item -LiteralPath .\request.json -Force
 .\target\debug\linkroute-ui.exe --status
 ```
 
+Run service install commands only from an elevated shell and only when you intend to change the local machine:
+
+```powershell
+.\target\release\linkroute-service.exe --install-service
+.\target\release\linkroute-service.exe --start-service
+.\target\release\linkroute-service.exe --stop-service
+.\target\release\linkroute-service.exe --uninstall-service
+```
+
 Run the tray manually when you need interactive validation:
 
 ```powershell
@@ -41,10 +50,11 @@ The tray process stays alive until the Exit menu item is selected.
 
 ```powershell
 cargo build --workspace --release
-.\scripts\fetch-windivert.ps1 -OutputDir .\target\release
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" .\installer\linkroute.iss
+.\scripts\build-installer.ps1
 .\scripts\package.ps1
 ```
+
+`build-installer.ps1` fetches WinDivert into `target\release`, finds Inno Setup 6, and writes `installer\output\LinkRouteSetup-x64.exe`. `package.ps1` copies the installer and release metadata to `dist\`.
 
 ## Current Architecture Boundary
 
