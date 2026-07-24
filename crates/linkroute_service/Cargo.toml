@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 linkroute_core = { path = "../linkroute_core" }
-libloading = "0.8"
+libloading = "0.9"
 toml = "0.9"
 
 [[bin]]
