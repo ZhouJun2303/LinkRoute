@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/ZhouJun2303/LinkRoute/security/advisories/new
+    about: Report vulnerabilities through GitHub security advisories after publication.
+

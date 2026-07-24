@@ -1,0 +1,12 @@
+[package]
+name = "linkroute_updater"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "linkroute-updater"
+path = "src/main.rs"
+
+[dependencies]
+ed25519-dalek = "2"

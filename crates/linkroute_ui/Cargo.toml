@@ -1,0 +1,13 @@
+[package]
+name = "linkroute_ui"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+linkroute_core = { path = "../linkroute_core" }
+
+[[bin]]
+name = "linkroute-ui"
+path = "src/main.rs"
+

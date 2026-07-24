@@ -1,0 +1,13 @@
+target/
+*.pdb
+*.exe
+*.msi
+*.log
+.vs/
+.vscode/
+dist/
+build/
+installer/output/
+*.tmp
+vendor/windivert/
+

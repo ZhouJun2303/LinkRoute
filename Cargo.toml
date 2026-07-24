@@ -1,0 +1,21 @@
+[workspace]
+members = [
+    "crates/linkroute_core",
+    "crates/linkroute_service",
+    "crates/linkroute_ui",
+    "crates/linkroute_updater",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-only"
+repository = "https://github.com/ZhouJun2303/LinkRoute"
+homepage = "https://github.com/ZhouJun2303/LinkRoute"
+readme = "README.md"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+
+

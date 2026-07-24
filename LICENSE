@@ -1,0 +1,9 @@
+GPL-3.0-only
+
+LinkRoute is distributed under the GNU General Public License version 3 only.
+
+The complete license text is available from the Free Software Foundation:
+https://www.gnu.org/licenses/gpl-3.0.txt
+
+Release packages must include this notice, the source code offer, and third-party
+license notices for bundled components such as WinDivert.

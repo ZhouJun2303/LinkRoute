@@ -1,0 +1,14 @@
+[package]
+name = "linkroute_service"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+linkroute_core = { path = "../linkroute_core" }
+libloading = "0.8"
+toml = "0.9"
+
+[[bin]]
+name = "linkroute-service"
+path = "src/main.rs"
