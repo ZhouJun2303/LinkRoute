@@ -11,13 +11,13 @@ Completed scaffold:
 - Convert raw packets into outbound/inbound five-tuple flow keys.
 - Route parsed packets through `ServiceController` and record managed flows.
 - Rewrite packet source/destination addresses and ports before WinDivert checksum recalculation.
+- Maintain outbound NAT mappings and inbound reverse mappings for rewritten packets.
 - Dynamically bind WinDivert `Recv`, `Send`, and `WinDivertHelperCalcChecksums`.
 
 Remaining:
 
-- Open long-running WinDivert Network, Flow, and Socket handles.
-- Correlate five-tuples to PID and executable path.
-- Build outbound source rewrite and inbound reverse mapping.
+- Open a long-running WinDivert Network handle and reinject processed packets.
+- Correlate five-tuples to PID and executable path through WinDivert Flow/Socket layers.
 - Validate TCP, UDP, and QUIC on a real Ethernet + Wi-Fi machine.
 
 ## Milestone 2: Local Service
@@ -28,12 +28,12 @@ Completed scaffold:
 - Service install, start, stop, and uninstall commands.
 - Installer hooks that register and start the service.
 - ACL-restricted named-pipe IPC for request/response UI commands.
+- Windows adapter enumeration through `GetAdaptersAddresses`, including source-address selection and virtual adapter filtering.
 
 Remaining:
 
 - Add live status streaming so tray state follows the running service without polling.
-- Add adapter enumeration through Windows APIs.
-- Apply enable/pause/swap directly to the running backend once the packet loop is active.
+- Apply enable/pause/swap directly to the running packet loop once the loop is active.
 
 ## Milestone 3: Native UI
 

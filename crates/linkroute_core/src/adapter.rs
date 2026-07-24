@@ -75,6 +75,36 @@ impl AdapterInventory {
             .min_by_key(|adapter| adapter.interface_index)
     }
 
+    pub fn selected_for(
+        &self,
+        outlet: Outlet,
+        selection: &AdapterSelection,
+    ) -> Option<&NetworkAdapter> {
+        let selected_id = match outlet {
+            Outlet::Ethernet => selection.ethernet_id.as_deref(),
+            Outlet::Wifi => selection.wifi_id.as_deref(),
+        };
+
+        if let Some(id) = selected_id {
+            return self.find(id).filter(|adapter| adapter.is_candidate_for(outlet));
+        }
+
+        self.best_for(outlet)
+    }
+
+    pub fn source_address_for(
+        &self,
+        outlet: Outlet,
+        selection: &AdapterSelection,
+        remote_addr: IpAddr,
+    ) -> Option<IpAddr> {
+        self.selected_for(outlet, selection)?
+            .addresses
+            .iter()
+            .copied()
+            .find(|address| usable_source_address(*address, remote_addr))
+    }
+
     pub fn vpn_active(&self) -> bool {
         self.adapters.iter().any(NetworkAdapter::looks_like_vpn_or_tunnel)
     }
@@ -99,6 +129,14 @@ impl AdapterInventory {
 
     pub fn find(&self, id: &str) -> Option<&NetworkAdapter> {
         self.adapters.iter().find(|adapter| adapter.id == id)
+    }
+}
+
+fn usable_source_address(address: IpAddr, remote_addr: IpAddr) -> bool {
+    match (address, remote_addr) {
+        (IpAddr::V4(address), IpAddr::V4(_)) => !address.is_unspecified() && !address.is_loopback(),
+        (IpAddr::V6(address), IpAddr::V6(_)) => !address.is_unspecified() && !address.is_loopback(),
+        _ => false,
     }
 }
 
@@ -143,6 +181,35 @@ mod tests {
 
         assert!(inventory.vpn_active());
         assert!(inventory.link_state(&AdapterSelection::default()).vpn_active);
+    }
+
+    #[test]
+    fn selected_adapter_source_address_matches_remote_family() {
+        let inventory = AdapterInventory::new(vec![
+            adapter("wifi", "Wi-Fi", AdapterKind::Wifi, 30, true, true),
+            adapter("eth", "Ethernet", AdapterKind::Ethernet, 10, true, true),
+        ]);
+        let selection = AdapterSelection { ethernet_id: Some(String::from("eth")), wifi_id: None };
+
+        let source = inventory.source_address_for(
+            Outlet::Ethernet,
+            &selection,
+            IpAddr::V4(Ipv4Addr::new(203, 0, 113, 20)),
+        );
+
+        assert_eq!(source, Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))));
+    }
+
+    #[test]
+    fn selected_adapter_does_not_fall_back_when_selected_link_is_down() {
+        let inventory = AdapterInventory::new(vec![
+            adapter("eth-down", "Ethernet Down", AdapterKind::Ethernet, 5, false, true),
+            adapter("eth-up", "Ethernet Up", AdapterKind::Ethernet, 10, true, true),
+        ]);
+        let selection =
+            AdapterSelection { ethernet_id: Some(String::from("eth-down")), wifi_id: None };
+
+        assert!(inventory.selected_for(Outlet::Ethernet, &selection).is_none());
     }
 
     fn adapter(

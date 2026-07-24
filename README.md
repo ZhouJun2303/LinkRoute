@@ -6,7 +6,9 @@ GitHub repository: https://github.com/ZhouJun2303/LinkRoute
 
 ## Current Status
 
-The repository currently contains a verified Rust workspace, routing rule engine, packet parser, configuration store, service IPC handler, Windows service registration commands, ACL-restricted named-pipe IPC, lightweight UI-to-service fallback bridge, native Win32 tray shell, WinDivert asset pipeline, update manifest verifier, installer packaging, and release automation. Real packet rewrite/NAT, live service status streaming, process correlation, and the full rules/settings editor are still under active development; see [ROADMAP.md](ROADMAP.md).
+The repository currently contains a verified Rust workspace, routing rule engine, packet parser, packet endpoint rewrite helpers, service-side NAT mapping, Windows adapter enumeration, configuration store, service IPC handler, Windows service registration commands, ACL-restricted named-pipe IPC, lightweight UI-to-service fallback bridge, native Win32 tray shell, WinDivert asset pipeline, update manifest verifier, installer packaging, and release automation.
+
+The remaining core runtime work is the long-running WinDivert packet loop, PID/executable correlation, live service status streaming, and the full rules/settings editor; see [ROADMAP.md](ROADMAP.md).
 
 ## What Works Now
 
@@ -14,9 +16,11 @@ The repository currently contains a verified Rust workspace, routing rule engine
 - Safe Rust IPv4/IPv6 TCP/UDP/ICMP parser with IPv6 extension-header handling.
 - Raw packet to flow-key routing decision path in `ServiceController`.
 - Safe packet source/destination address and port rewrite helpers with checksum-field invalidation.
+- Service-side NAT table for outbound source rewrite and inbound destination restoration.
+- Packet processing result model for forwarded, dropped, and rewritten packets.
 - DNS A/AAAA/CNAME cache with TTL expiry.
 - Five-tuple flow table and managed-flow clearing for swap behavior.
-- Physical adapter filtering and VPN/tunnel detection model.
+- Windows `GetAdaptersAddresses` inventory with Ethernet/Wi-Fi classification, physical adapter filtering, source-address selection, and VPN/tunnel detection.
 - `%ProgramData%\LinkRoute\config.toml` persistence with invalid-config backup.
 - Versioned JSON IPC request/response protocol shared by service and UI.
 - Service command handler for status, config, enable, pause, swap, and diagnostics.
@@ -25,7 +29,7 @@ The repository currently contains a verified Rust workspace, routing rule engine
 - UI fallback bridge plus Win32 tray menu and global hotkeys.
 - WinDivert download, SHA-256 verification, DLL/driver probing, dynamic symbol loading, packet send/receive wrappers, and checksum helper binding.
 - Ed25519 update manifest parsing and signature verification.
-- Inno Setup installer build and GitHub Actions CI/release workflows.
+- Inno Setup installer and GitHub Actions CI/release workflows.
 
 ## Build
 
@@ -49,6 +53,8 @@ Useful service checks:
 .\target\debug\linkroute-service.exe --load-windivert
 .\target\debug\linkroute-service.exe --status-json
 ```
+
+`--status-json` includes the detected adapter list and marks only usable physical Ethernet/Wi-Fi adapters as outlet candidates.
 
 Service install commands require an elevated shell:
 
@@ -85,6 +91,7 @@ The `dist/` folder receives the installer, installer SHA-256 file, update manife
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Data plane](docs/data-plane.md)
 - [Development](docs/development.md)
 - [Git reference](docs/git.md)
 - [Release process](docs/release.md)

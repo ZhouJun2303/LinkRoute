@@ -29,6 +29,14 @@ Remove-Item -LiteralPath .\request.json -Force
 .\target\debug\linkroute-ui.exe --status
 ```
 
+When testing changes that affect adapter enumeration, run the latest code path directly:
+
+```powershell
+cargo run -p linkroute_service -- --status-json
+```
+
+Check that physical Ethernet/Wi-Fi adapters are the only entries with an `outlet` value and that VPN/tunnel/virtual adapters are not outlet candidates.
+
 Validate the named-pipe transport without installing the service:
 
 ```powershell
@@ -68,3 +76,5 @@ cargo build --workspace --release
 ## Current Architecture Boundary
 
 `linkroute_core` is safe Rust and must remain free of `unsafe`. Windows API and WinDivert FFI are confined to service-side and UI-shell modules.
+
+The tested data-plane contract is `ServiceController::process_packet`. Keep packet parsing and endpoint rewrite helpers in `linkroute_core`; keep NAT state, adapter enumeration, WinDivert calls, and process correlation in `linkroute_service`.

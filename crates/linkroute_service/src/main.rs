@@ -1,8 +1,10 @@
+mod adapters;
 mod backend;
 mod config_store;
 mod control;
 mod ipc_handler;
 mod named_pipe;
+mod nat;
 mod windivert;
 mod windows_service;
 
@@ -111,8 +113,16 @@ fn runtime_status_response(controller: &ServiceController, store: &ConfigStore) 
 fn load_controller() -> Result<(ServiceController, ConfigSource, Option<PathBuf>), String> {
     let store = ConfigStore::program_data();
     let loaded = store.load_or_default().map_err(|error| error.to_string())?;
-    let controller = ServiceController::new(loaded.config, Box::new(WindivertBackend::new()));
+    let mut controller = ServiceController::new(loaded.config, Box::new(WindivertBackend::new()));
+    refresh_adapters(&mut controller);
     Ok((controller, loaded.source, loaded.backup_path))
+}
+
+fn refresh_adapters(controller: &mut ServiceController) {
+    match adapters::enumerate_adapters() {
+        Ok((inventory, selection)) => controller.set_adapters(inventory, selection),
+        Err(error) => eprintln!("warning: could not enumerate network adapters: {error}"),
+    }
 }
 
 fn install_service() {
@@ -351,15 +361,13 @@ fn handle_request_text(json: &str) {
 }
 
 fn status_json() {
-    let store = ConfigStore::program_data();
-    let loaded = match store.load_or_default() {
+    let (controller, _, _) = match load_controller() {
         Ok(loaded) => loaded,
         Err(error) => {
-            eprintln!("could not load config: {error}");
+            eprintln!("could not load service status: {error}");
             std::process::exit(1);
         }
     };
-    let controller = ServiceController::new(loaded.config, Box::new(WindivertBackend::new()));
     let windivert_ready =
         WindivertProbe::probe_near_exe().map(|probe| probe.ready()).unwrap_or(false);
     let response = IpcResponse::Status {

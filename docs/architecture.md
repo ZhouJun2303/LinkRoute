@@ -2,7 +2,7 @@
 
 ## Components
 
-- `linkroute_core`: shared rule, config, validation, normalization, packet parsing, IPC, and routing decision logic.
+- `linkroute_core`: shared rule, config, validation, normalization, packet parsing, IPC, adapter model, and routing decision logic.
 - `linkroute_service`: privileged Windows service. It owns packet capture, DNS observation, adapter monitoring, configuration writes, status publishing, and update orchestration.
 - `linkroute_ui`: native desktop UI and tray entry point. It does not need administrator rights during normal operation once the LocalSystem service is installed and the named pipe is reachable.
 - `linkroute_updater`: small bootstrap executable that verifies and applies downloaded release packages.
@@ -20,7 +20,7 @@ Priority:
 
 If a rule explicitly matches but its target adapter is unavailable, the flow is blocked. Unmatched traffic continues to use the Windows default route.
 
-The swap operation is special: the service atomically swaps configured Ethernet and Wi-Fi targets, closes managed TCP flows, and drops UDP mappings so affected applications reconnect through the new outlet.
+The swap operation is special: the service atomically swaps configured Ethernet and Wi-Fi targets, closes managed TCP flows, and drops NAT mappings so affected applications reconnect through the current rules.
 
 ## Packet Backend
 
@@ -33,17 +33,25 @@ The first backend is planned around WinDivert:
 
 The backend trait in `linkroute_service` is intentionally narrow so a future WFP implementation can replace WinDivert without changing UI or rule storage.
 
-## Packet Parsing
+## Packet Parsing And Rewrite
 
 `linkroute_core::packet` parses raw IPv4 and IPv6 network-layer packets without unsafe code. It extracts source/destination addresses, TCP/UDP ports, ICMP protocol markers, and the transport offset. IPv6 hop-by-hop, routing, destination-options, fragment, and authentication headers are walked until the transport header is reached.
 
 Fragmented IPv4 and IPv6 packets are currently rejected by the parser because the routing decision must be attached to a complete transport flow. That is intentional until the WinDivert loop records fragment state or relies on WinDivert's reassembly behavior explicitly.
 
-`ParsedPacket::flow_key(PacketDirection)` converts outbound packets into local-to-remote keys and inbound packets into remote-to-local reverse keys. `ServiceController::decide_packet` uses this parser, records the flow, and applies the route decision through the backend trait. This is the tested bridge from captured bytes to routing policy.
+`ParsedPacket::flow_key(PacketDirection)` converts outbound packets into local-to-remote keys and inbound packets into translated local-to-remote keys. `ServiceController::decide_packet` keeps the older decision-only bridge from captured bytes to routing policy.
+
+`ServiceController::process_packet` is the tested data-plane bridge. For outbound packets it decides the route, selects a source address from the target adapter, rewrites the packet source endpoint, and stores a NAT mapping. For inbound packets it finds the translated five-tuple, restores the original destination endpoint, and touches the flow/NAT timestamps. Matched packets are returned as forwarded, dropped, or rewritten outcomes so the WinDivert loop can reinject or drop them.
 
 `rewrite_packet_source` and `rewrite_packet_destination` mutate packet endpoints for TCP/UDP flows and clear the affected IPv4/transport checksum fields. The service-side WinDivert runtime then calls `WinDivertHelperCalcChecksums` before reinjection.
 
 `linkroute_service::windivert::runtime` dynamically binds `WinDivertRecv`, `WinDivertSend`, and `WinDivertHelperCalcChecksums`, and wraps `WINDIVERT_ADDRESS` as an opaque 80-byte buffer matching WinDivert 2.2.x layout. The wrapper exposes direction and IPv6 flags without duplicating the C bitfield structure in Rust.
+
+## Adapter Inventory
+
+`linkroute_service::adapters` uses Windows `GetAdaptersAddresses` to load the active adapter inventory. It maps Windows interface types and names to Ethernet, Wi-Fi, tunnel, loopback, or other kinds; extracts IPv4/IPv6 unicast addresses; and filters virtual adapters such as Hyper-V, WSL, Docker, VMware, VirtualBox, Npcap, and loopback interfaces out of physical outlet candidates.
+
+`AdapterInventory::source_address_for` returns a usable source address with the same address family as the remote endpoint. If a rule targets an outlet but no usable source address exists, `ServiceController::process_packet` drops the packet instead of leaking it to the Windows default route.
 
 ## Security Notes
 
@@ -59,6 +67,7 @@ The service scaffold now includes tested in-memory models that the packet backen
 
 - `DnsCache` records queried domains, CNAMEs, A/AAAA answers, and TTL expiry so a later packet-only flow can recover its domain from the remote IP address.
 - `FlowTable` records five-tuples, process IDs, executable paths, domains, and routing decisions. Swap and pause operations clear managed flows so apps are forced to reconnect through the current rules.
+- `NatTable` records original and translated five-tuples so outbound source rewrites and inbound destination restoration are deterministic.
 - `AdapterInventory` filters physical Ethernet/Wi-Fi candidates and detects active VPN/tunnel-style adapters before enabling routing.
 
 `linkroute-service --probe-windivert` checks whether `WinDivert.dll` and `WinDivert64.sys` are beside the executable. `linkroute-service --self-test` executes the service decision pipeline without opening the real driver.

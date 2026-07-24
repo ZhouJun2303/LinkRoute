@@ -8,8 +8,11 @@
 - Fragmented IPv4/IPv6 rejection until fragment handling is explicit.
 - Packet-direction to flow-key mapping for outbound and inbound traffic.
 - Raw packet routing through `ServiceController::decide_packet`.
+- Service packet processing through `ServiceController::process_packet`.
 - Packet source/destination rewrite and checksum-field invalidation.
+- NAT table original/translated indexes, replacement, idle purge, outbound rewrite, inbound restore, and missing source-address drop behavior.
 - WinDivert address wrapper layout and direction/IP-version flag decoding.
+- Windows adapter kind mapping and virtual adapter filtering.
 - DNS A/AAAA/CNAME cache TTL handling.
 - Flow table reverse lookup, idle purge, and managed-flow clearing.
 - Physical adapter filtering and VPN/tunnel detection.
@@ -24,6 +27,21 @@
 - Service install command string formatting.
 - UI bridge path resolution and status summary formatting.
 - Update manifest parsing and signature verification.
+
+## Manual Adapter Check
+
+Run the latest service code without installing it:
+
+```powershell
+cargo run -p linkroute_service -- --status-json
+```
+
+Expected result:
+
+- `adapters` lists Windows adapters returned by `GetAdaptersAddresses`.
+- Active physical Ethernet/Wi-Fi adapters have `outlet` set to `ethernet` or `wifi`.
+- VPN/tunnel adapters are visible but not outlet candidates.
+- `vEthernet`, WSL, Docker, VMware, VirtualBox, Npcap, Wi-Fi Direct virtual adapters, and loopback adapters are not outlet candidates.
 
 ## Manual IPC Checks
 
