@@ -3,6 +3,12 @@
 ## Automated
 
 - Rule precedence and longest domain match.
+- IPv4/IPv6 TCP and UDP packet parsing.
+- IPv6 extension-header traversal before transport parsing.
+- Fragmented IPv4/IPv6 rejection until fragment handling is explicit.
+- Packet-direction to flow-key mapping for outbound and inbound traffic.
+- Raw packet routing through `ServiceController::decide_packet`.
+- WinDivert address wrapper layout and direction/IP-version flag decoding.
 - DNS A/AAAA/CNAME cache TTL handling.
 - Flow table reverse lookup, idle purge, and managed-flow clearing.
 - Physical adapter filtering and VPN/tunnel detection.

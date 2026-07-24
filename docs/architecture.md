@@ -2,7 +2,7 @@
 
 ## Components
 
-- `linkroute_core`: shared rule, config, validation, normalization, IPC, and routing decision logic.
+- `linkroute_core`: shared rule, config, validation, normalization, packet parsing, IPC, and routing decision logic.
 - `linkroute_service`: privileged Windows service. It owns packet capture, DNS observation, adapter monitoring, configuration writes, status publishing, and update orchestration.
 - `linkroute_ui`: native desktop UI and tray entry point. It does not need administrator rights during normal operation once the LocalSystem service is installed and the named pipe is reachable.
 - `linkroute_updater`: small bootstrap executable that verifies and applies downloaded release packages.
@@ -32,6 +32,16 @@ The first backend is planned around WinDivert:
 - Outbound packets are rewritten for the selected interface and inbound packets are reverse-translated.
 
 The backend trait in `linkroute_service` is intentionally narrow so a future WFP implementation can replace WinDivert without changing UI or rule storage.
+
+## Packet Parsing
+
+`linkroute_core::packet` parses raw IPv4 and IPv6 network-layer packets without unsafe code. It extracts source/destination addresses, TCP/UDP ports, ICMP protocol markers, and the transport offset. IPv6 hop-by-hop, routing, destination-options, fragment, and authentication headers are walked until the transport header is reached.
+
+Fragmented IPv4 and IPv6 packets are currently rejected by the parser because the routing decision must be attached to a complete transport flow. That is intentional until the WinDivert loop records fragment state or relies on WinDivert's reassembly behavior explicitly.
+
+`ParsedPacket::flow_key(PacketDirection)` converts outbound packets into local-to-remote keys and inbound packets into remote-to-local reverse keys. `ServiceController::decide_packet` uses this parser, records the flow, and applies the route decision through the backend trait. This is the tested bridge from captured bytes to routing policy.
+
+`linkroute_service::windivert::runtime` dynamically binds `WinDivertRecv`, `WinDivertSend`, and `WinDivertHelperCalcChecksums`, and wraps `WINDIVERT_ADDRESS` as an opaque 80-byte buffer matching WinDivert 2.2.x layout. The wrapper exposes direction and IPv6 flags without duplicating the C bitfield structure in Rust.
 
 ## Security Notes
 

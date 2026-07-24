@@ -4,9 +4,9 @@ use std::net::IpAddr;
 
 use crate::backend::{BackendStatus, CaptureBackend};
 use linkroute_core::{
-    AdapterInventory, AdapterSelection, AdapterSnapshot, DnsCache, FlowDescriptor, FlowKey,
-    FlowRecord, FlowTable, LinkState, Outlet, RouteConfig, RouteDecision, RouteEngine,
-    ServiceSnapshot,
+    parse_ip_packet, AdapterInventory, AdapterSelection, AdapterSnapshot, DnsCache, FlowDescriptor,
+    FlowKey, FlowRecord, FlowTable, LinkState, Outlet, PacketDirection, RouteConfig, RouteDecision,
+    RouteEngine, ServiceSnapshot,
 };
 
 pub struct ServiceController {
@@ -104,6 +104,26 @@ impl ServiceController {
         decision
     }
 
+    pub fn decide_packet(
+        &mut self,
+        now_epoch_seconds: u64,
+        packet: &[u8],
+        direction: PacketDirection,
+        process_id: u32,
+        exe_path: Option<String>,
+        explicit_domain: Option<String>,
+    ) -> Result<RouteDecision, String> {
+        let parsed = parse_ip_packet(packet).map_err(|error| error.to_string())?;
+        let key = parsed.flow_key(direction);
+        Ok(self.decide_and_record_flow(
+            now_epoch_seconds,
+            key,
+            process_id,
+            exe_path,
+            explicit_domain,
+        ))
+    }
+
     pub fn decide_flow(&mut self, flow: &FlowDescriptor) {
         let decision = self.engine.decide(flow, self.links);
         self.backend.apply_decision(flow, &decision, self.links);
@@ -172,7 +192,7 @@ mod tests {
     use crate::backend::{BackendStatus, CaptureBackend};
     use linkroute_core::{
         ApplicationRule, DecisionSource, DomainMatchMode, DomainRule, FlowDescriptor, FlowKey,
-        LinkState, Outlet, Protocol, RouteAction, RouteConfig, RouteDecision,
+        LinkState, Outlet, PacketDirection, Protocol, RouteAction, RouteConfig, RouteDecision,
     };
 
     use super::ServiceController;
@@ -219,6 +239,46 @@ mod tests {
 
         assert_eq!(controller.swap_outlets_now().unwrap(), 1);
         assert_eq!(controller.flow_count(), 0);
+    }
+
+    #[test]
+    fn raw_packet_decision_records_flow() {
+        let mut config = RouteConfig::enabled();
+        config.application_rules.push(
+            ApplicationRule::new("app", "Browser", r"C:\Apps\browser.exe", Outlet::Ethernet)
+                .unwrap(),
+        );
+        let mut controller = ServiceController::new(config, Box::new(FakeBackend::default()));
+        controller.start().unwrap();
+        let packet = sample_ipv4_tcp_packet();
+
+        let decision = controller
+            .decide_packet(
+                100,
+                &packet,
+                PacketDirection::Outbound,
+                1000,
+                Some(String::from(r"C:\Apps\browser.exe")),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(decision.action, RouteAction::UseOutlet(Outlet::Ethernet));
+        assert_eq!(controller.flow_count(), 1);
+        assert_eq!(controller.backend_status().active_flows, 1);
+    }
+
+    fn sample_ipv4_tcp_packet() -> Vec<u8> {
+        let mut packet = vec![0_u8; 28];
+        packet[0] = 0x45;
+        packet[2..4].copy_from_slice(&28_u16.to_be_bytes());
+        packet[8] = 64;
+        packet[9] = 6;
+        packet[12..16].copy_from_slice(&[192, 0, 2, 10]);
+        packet[16..20].copy_from_slice(&[203, 0, 113, 20]);
+        packet[20..22].copy_from_slice(&50000_u16.to_be_bytes());
+        packet[22..24].copy_from_slice(&443_u16.to_be_bytes());
+        packet
     }
 
     fn sample_key(remote_addr: IpAddr) -> FlowKey {

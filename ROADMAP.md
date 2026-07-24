@@ -4,9 +4,18 @@ This roadmap tracks the path from the current engineering scaffold to a usable W
 
 ## Milestone 1: Packet Spike
 
-- Open WinDivert Network, Flow, and Socket layers.
+Completed scaffold:
+
+- Parse IPv4/IPv6 TCP, UDP, ICMP, and common IPv6 extension headers.
+- Reject fragmented packets until fragment reassembly/flow correlation is explicit.
+- Convert raw packets into outbound/inbound five-tuple flow keys.
+- Route parsed packets through `ServiceController` and record managed flows.
+- Dynamically bind WinDivert `Recv`, `Send`, and `WinDivertHelperCalcChecksums`.
+
+Remaining:
+
+- Open long-running WinDivert Network, Flow, and Socket handles.
 - Correlate five-tuples to PID and executable path.
-- Parse IPv4/IPv6 TCP and UDP packet headers.
 - Build outbound source rewrite and inbound reverse mapping.
 - Validate TCP, UDP, and QUIC on a real Ethernet + Wi-Fi machine.
 

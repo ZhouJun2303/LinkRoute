@@ -6,11 +6,13 @@ GitHub repository: https://github.com/ZhouJun2303/LinkRoute
 
 ## Current Status
 
-The repository currently contains a verified Rust workspace, routing rule engine, configuration store, service IPC handler, Windows service registration commands, ACL-restricted named-pipe IPC, lightweight UI-to-service fallback bridge, native Win32 tray shell, WinDivert asset pipeline, update manifest verifier, installer packaging, and release automation. Real packet rewrite/NAT, live service status streaming, and the full rules/settings editor are still under active development; see [ROADMAP.md](ROADMAP.md).
+The repository currently contains a verified Rust workspace, routing rule engine, packet parser, configuration store, service IPC handler, Windows service registration commands, ACL-restricted named-pipe IPC, lightweight UI-to-service fallback bridge, native Win32 tray shell, WinDivert asset pipeline, update manifest verifier, installer packaging, and release automation. Real packet rewrite/NAT, live service status streaming, process correlation, and the full rules/settings editor are still under active development; see [ROADMAP.md](ROADMAP.md).
 
 ## What Works Now
 
 - Rule precedence for domains and desktop EXE paths.
+- Safe Rust IPv4/IPv6 TCP/UDP/ICMP parser with IPv6 extension-header handling.
+- Raw packet to flow-key routing decision path in `ServiceController`.
 - DNS A/AAAA/CNAME cache with TTL expiry.
 - Five-tuple flow table and managed-flow clearing for swap behavior.
 - Physical adapter filtering and VPN/tunnel detection model.
@@ -20,7 +22,7 @@ The repository currently contains a verified Rust workspace, routing rule engine
 - Windows service registration, start, stop, and uninstall commands for the service scaffold.
 - ACL-restricted named-pipe transport for local UI-to-service requests.
 - UI fallback bridge plus Win32 tray menu and global hotkeys.
-- WinDivert download, SHA-256 verification, DLL/driver probing, and dynamic symbol loading.
+- WinDivert download, SHA-256 verification, DLL/driver probing, dynamic symbol loading, packet send/receive wrappers, and checksum helper binding.
 - Ed25519 update manifest parsing and signature verification.
 - Inno Setup installer build and GitHub Actions CI/release workflows.
 

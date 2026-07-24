@@ -8,6 +8,8 @@ All notable changes to LinkRoute will be documented in this file.
 
 - Rust workspace with core, service, UI, and updater crates.
 - Rule engine for application and domain routing precedence.
+- Safe Rust packet parser for IPv4/IPv6 TCP, UDP, ICMP, IPv6 extension headers, and flow-key mapping.
+- ServiceController raw-packet routing decision path that records parsed packet flows.
 - DNS cache, flow table, adapter selection, and VPN/tunnel detection models.
 - Service config persistence under `%ProgramData%\LinkRoute` with invalid-config backup.
 - Versioned IPC request/response JSON helpers shared by service and UI.
@@ -17,7 +19,7 @@ All notable changes to LinkRoute will be documented in this file.
 - Inno Setup hooks that register/start the service during install and stop/delete it during uninstall.
 - UI fallback bridge that invokes the service command handler through request files when the pipe is unavailable.
 - Native Win32 tray shell with status, diagnostics, enable/pause, swap, exit, and global hotkeys.
-- WinDivert asset download, SHA-256 verification, installer packaging, DLL probing, and dynamic symbol loading.
+- WinDivert asset download, SHA-256 verification, installer packaging, DLL probing, dynamic symbol loading, packet send/receive wrappers, and checksum helper binding.
 - Release packaging for installer SHA-256, update manifest, and signature placeholder files.
 - Ed25519 update manifest parsing and signature verification.
 - Inno Setup installer and GitHub Actions CI/release workflows.
@@ -25,6 +27,7 @@ All notable changes to LinkRoute will be documented in this file.
 ### Not Complete Yet
 
 - Real packet rewrite/NAT loop.
+- PID/executable correlation from WinDivert Flow/Socket layers.
 - Live service status streaming.
 - Full rules/settings editor window.
 - Real release signing key integration.

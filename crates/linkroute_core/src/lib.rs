@@ -8,6 +8,7 @@ pub mod flow;
 pub mod ipc;
 pub mod model;
 pub mod normalize;
+pub mod packet;
 
 pub use adapter::{AdapterInventory, AdapterKind, AdapterSelection, NetworkAdapter};
 pub use config::{ConfigIssue, RouteConfig};
@@ -25,3 +26,4 @@ pub use model::{
 pub use normalize::{
     domain_matches, exe_paths_equal, normalize_domain, normalize_exe_path, NormalizeError,
 };
+pub use packet::{parse_ip_packet, PacketDirection, PacketParseError, ParsedPacket};
