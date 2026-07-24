@@ -41,6 +41,8 @@ Fragmented IPv4 and IPv6 packets are currently rejected by the parser because th
 
 `ParsedPacket::flow_key(PacketDirection)` converts outbound packets into local-to-remote keys and inbound packets into remote-to-local reverse keys. `ServiceController::decide_packet` uses this parser, records the flow, and applies the route decision through the backend trait. This is the tested bridge from captured bytes to routing policy.
 
+`rewrite_packet_source` and `rewrite_packet_destination` mutate packet endpoints for TCP/UDP flows and clear the affected IPv4/transport checksum fields. The service-side WinDivert runtime then calls `WinDivertHelperCalcChecksums` before reinjection.
+
 `linkroute_service::windivert::runtime` dynamically binds `WinDivertRecv`, `WinDivertSend`, and `WinDivertHelperCalcChecksums`, and wraps `WINDIVERT_ADDRESS` as an opaque 80-byte buffer matching WinDivert 2.2.x layout. The wrapper exposes direction and IPv6 flags without duplicating the C bitfield structure in Rust.
 
 ## Security Notes

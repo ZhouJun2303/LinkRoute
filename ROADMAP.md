@@ -10,6 +10,7 @@ Completed scaffold:
 - Reject fragmented packets until fragment reassembly/flow correlation is explicit.
 - Convert raw packets into outbound/inbound five-tuple flow keys.
 - Route parsed packets through `ServiceController` and record managed flows.
+- Rewrite packet source/destination addresses and ports before WinDivert checksum recalculation.
 - Dynamically bind WinDivert `Recv`, `Send`, and `WinDivertHelperCalcChecksums`.
 
 Remaining:

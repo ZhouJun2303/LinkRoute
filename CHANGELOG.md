@@ -8,7 +8,7 @@ All notable changes to LinkRoute will be documented in this file.
 
 - Rust workspace with core, service, UI, and updater crates.
 - Rule engine for application and domain routing precedence.
-- Safe Rust packet parser for IPv4/IPv6 TCP, UDP, ICMP, IPv6 extension headers, and flow-key mapping.
+- Safe Rust packet parser for IPv4/IPv6 TCP, UDP, ICMP, IPv6 extension headers, flow-key mapping, and endpoint rewrite helpers.
 - ServiceController raw-packet routing decision path that records parsed packet flows.
 - DNS cache, flow table, adapter selection, and VPN/tunnel detection models.
 - Service config persistence under `%ProgramData%\LinkRoute` with invalid-config backup.

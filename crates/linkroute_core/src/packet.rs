@@ -98,6 +98,34 @@ impl fmt::Display for PacketParseError {
 }
 
 impl std::error::Error for PacketParseError {}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PacketRewriteError {
+    Parse(PacketParseError),
+    AddressFamilyMismatch { packet_version: u8, address: IpAddr },
+    TransportPortsUnavailable(Protocol),
+}
+
+impl fmt::Display for PacketRewriteError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Parse(error) => write!(formatter, "{error}"),
+            Self::AddressFamilyMismatch { packet_version, address } => {
+                write!(formatter, "cannot write address {address} into IPv{packet_version} packet")
+            }
+            Self::TransportPortsUnavailable(protocol) => {
+                write!(formatter, "cannot rewrite ports for protocol {protocol:?}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PacketRewriteError {}
+
+impl From<PacketParseError> for PacketRewriteError {
+    fn from(error: PacketParseError) -> Self {
+        Self::Parse(error)
+    }
+}
 
 pub fn parse_ip_packet(packet: &[u8]) -> Result<ParsedPacket, PacketParseError> {
     let Some(first) = packet.first() else {
@@ -245,6 +273,117 @@ fn parse_transport(
     }
 }
 
+pub fn rewrite_packet_source(
+    packet: &mut [u8],
+    address: IpAddr,
+    port: Option<u16>,
+) -> Result<ParsedPacket, PacketRewriteError> {
+    rewrite_packet_endpoint(packet, EndpointSide::Source, address, port)
+}
+
+pub fn rewrite_packet_destination(
+    packet: &mut [u8],
+    address: IpAddr,
+    port: Option<u16>,
+) -> Result<ParsedPacket, PacketRewriteError> {
+    rewrite_packet_endpoint(packet, EndpointSide::Destination, address, port)
+}
+
+fn rewrite_packet_endpoint(
+    packet: &mut [u8],
+    side: EndpointSide,
+    address: IpAddr,
+    port: Option<u16>,
+) -> Result<ParsedPacket, PacketRewriteError> {
+    let parsed = parse_ip_packet(packet)?;
+    rewrite_address(packet, side, address)?;
+    if let Some(port) = port {
+        rewrite_port(packet, side, &parsed, port)?;
+    }
+    clear_checksum_fields(packet, &parsed)?;
+    parse_ip_packet(packet).map_err(PacketRewriteError::from)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EndpointSide {
+    Source,
+    Destination,
+}
+
+fn rewrite_address(
+    packet: &mut [u8],
+    side: EndpointSide,
+    address: IpAddr,
+) -> Result<(), PacketRewriteError> {
+    match (packet[0] >> 4, address) {
+        (4, IpAddr::V4(address)) => {
+            let offset = match side {
+                EndpointSide::Source => 12,
+                EndpointSide::Destination => 16,
+            };
+            packet[offset..offset + 4].copy_from_slice(&address.octets());
+            Ok(())
+        }
+        (6, IpAddr::V6(address)) => {
+            let offset = match side {
+                EndpointSide::Source => 8,
+                EndpointSide::Destination => 24,
+            };
+            packet[offset..offset + 16].copy_from_slice(&address.octets());
+            Ok(())
+        }
+        (packet_version, address) => {
+            Err(PacketRewriteError::AddressFamilyMismatch { packet_version, address })
+        }
+    }
+}
+
+fn rewrite_port(
+    packet: &mut [u8],
+    side: EndpointSide,
+    parsed: &ParsedPacket,
+    port: u16,
+) -> Result<(), PacketRewriteError> {
+    match parsed.protocol {
+        Protocol::Tcp | Protocol::Udp => {
+            let offset = match side {
+                EndpointSide::Source => parsed.transport_offset,
+                EndpointSide::Destination => parsed.transport_offset + 2,
+            };
+            require_len(packet, offset + 2)?;
+            packet[offset..offset + 2].copy_from_slice(&port.to_be_bytes());
+            Ok(())
+        }
+        protocol => Err(PacketRewriteError::TransportPortsUnavailable(protocol)),
+    }
+}
+
+fn clear_checksum_fields(
+    packet: &mut [u8],
+    parsed: &ParsedPacket,
+) -> Result<(), PacketRewriteError> {
+    if packet[0] >> 4 == 4 {
+        require_len(packet, 12)?;
+        packet[10..12].fill(0);
+    }
+
+    match parsed.protocol {
+        Protocol::Tcp => {
+            require_len(packet, parsed.transport_offset + 18)?;
+            packet[parsed.transport_offset + 16..parsed.transport_offset + 18].fill(0);
+        }
+        Protocol::Udp => {
+            require_len(packet, parsed.transport_offset + 8)?;
+            packet[parsed.transport_offset + 6..parsed.transport_offset + 8].fill(0);
+        }
+        Protocol::Icmp => {
+            require_len(packet, parsed.transport_offset + 4)?;
+            packet[parsed.transport_offset + 2..parsed.transport_offset + 4].fill(0);
+        }
+        Protocol::Other(_) => {}
+    }
+    Ok(())
+}
 fn read_array<const N: usize>(packet: &[u8], offset: usize) -> Result<[u8; N], PacketParseError> {
     require_len(packet, offset + N)?;
     let mut data = [0_u8; N];
@@ -339,6 +478,60 @@ mod tests {
         assert_eq!(parsed.transport_offset, 48);
     }
 
+    #[test]
+    fn rewrites_ipv4_tcp_source_and_clears_checksums() {
+        let mut payload = vec![0_u8; 20];
+        payload[0..2].copy_from_slice(&50000_u16.to_be_bytes());
+        payload[2..4].copy_from_slice(&443_u16.to_be_bytes());
+        payload[16..18].copy_from_slice(&0xaabb_u16.to_be_bytes());
+        let mut packet = ipv4_packet(6, &payload);
+        packet[10..12].copy_from_slice(&0x1234_u16.to_be_bytes());
+
+        let parsed = super::rewrite_packet_source(
+            &mut packet,
+            IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9)),
+            Some(40000),
+        )
+        .unwrap();
+
+        assert_eq!(parsed.source_addr, IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9)));
+        assert_eq!(parsed.source_port, Some(40000));
+        assert_eq!(&packet[12..16], &[198, 51, 100, 9]);
+        assert_eq!(&packet[20..22], &40000_u16.to_be_bytes());
+        assert_eq!(&packet[10..12], &[0, 0]);
+        assert_eq!(&packet[36..38], &[0, 0]);
+    }
+
+    #[test]
+    fn rewrites_ipv6_udp_destination_and_clears_transport_checksum() {
+        let mut payload = vec![0_u8; 8];
+        payload[0..2].copy_from_slice(&50000_u16.to_be_bytes());
+        payload[2..4].copy_from_slice(&53_u16.to_be_bytes());
+        payload[6..8].copy_from_slice(&0xaabb_u16.to_be_bytes());
+        let mut packet = ipv6_packet(17, &payload);
+        let new_addr = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2);
+
+        let parsed =
+            super::rewrite_packet_destination(&mut packet, IpAddr::V6(new_addr), Some(5353))
+                .unwrap();
+
+        assert_eq!(parsed.destination_addr, IpAddr::V6(new_addr));
+        assert_eq!(parsed.destination_port, Some(5353));
+        assert_eq!(&packet[24..40], &new_addr.octets());
+        assert_eq!(&packet[42..44], &5353_u16.to_be_bytes());
+        assert_eq!(&packet[46..48], &[0, 0]);
+    }
+
+    #[test]
+    fn rejects_rewrite_address_family_mismatch() {
+        let mut packet = ipv4_packet(17, &[0xc3, 0x50, 0x00, 0x35, 0, 8, 0, 0]);
+
+        let error =
+            super::rewrite_packet_source(&mut packet, IpAddr::V6(Ipv6Addr::LOCALHOST), None)
+                .unwrap_err();
+
+        assert!(matches!(error, super::PacketRewriteError::AddressFamilyMismatch { .. }));
+    }
     #[test]
     fn rejects_too_short_transport_header() {
         let packet = ipv4_packet(6, &[0xc3, 0x50, 0x01]);

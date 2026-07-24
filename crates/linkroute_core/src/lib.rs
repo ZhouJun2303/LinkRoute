@@ -26,4 +26,7 @@ pub use model::{
 pub use normalize::{
     domain_matches, exe_paths_equal, normalize_domain, normalize_exe_path, NormalizeError,
 };
-pub use packet::{parse_ip_packet, PacketDirection, PacketParseError, ParsedPacket};
+pub use packet::{
+    parse_ip_packet, rewrite_packet_destination, rewrite_packet_source, PacketDirection,
+    PacketParseError, PacketRewriteError, ParsedPacket,
+};

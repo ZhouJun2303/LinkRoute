@@ -13,6 +13,7 @@ The repository currently contains a verified Rust workspace, routing rule engine
 - Rule precedence for domains and desktop EXE paths.
 - Safe Rust IPv4/IPv6 TCP/UDP/ICMP parser with IPv6 extension-header handling.
 - Raw packet to flow-key routing decision path in `ServiceController`.
+- Safe packet source/destination address and port rewrite helpers with checksum-field invalidation.
 - DNS A/AAAA/CNAME cache with TTL expiry.
 - Five-tuple flow table and managed-flow clearing for swap behavior.
 - Physical adapter filtering and VPN/tunnel detection model.
