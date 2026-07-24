@@ -5,6 +5,7 @@ mod control;
 mod ipc_handler;
 mod named_pipe;
 mod nat;
+mod process_context;
 mod windivert;
 mod windows_service;
 

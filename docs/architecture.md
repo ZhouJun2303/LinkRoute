@@ -26,12 +26,12 @@ The swap operation is special: the service atomically swaps configured Ethernet 
 
 The first backend is planned around WinDivert:
 
-- Flow/socket layers provide process correlation.
+- IP Helper owner-PID tables provide packet-to-process correlation for the current implementation.
 - Network layer provides packets.
-- The service maintains five-tuple to process/rule mappings.
+- The service maintains five-tuple to process/rule mappings and NAT mappings.
 - Outbound packets are rewritten for the selected interface and inbound packets are reverse-translated.
 
-The backend trait in `linkroute_service` is intentionally narrow so a future WFP implementation can replace WinDivert without changing UI or rule storage. The WinDivert packet pump is separated behind `PacketIo` and `PacketHandler` so the receive/process/checksum/send loop can be tested without opening the driver.
+The backend trait in `linkroute_service` is intentionally narrow so a future WFP implementation can replace WinDivert without changing UI or rule storage. The WinDivert packet pump is separated behind `PacketIo` and `PacketHandler` so the receive/process/checksum/send loop can be tested without opening the driver. Process context is separated behind `PacketProcessResolver` so IP Helper, WinDivert Flow/Socket, or a future WFP implementation can feed the same controller path.
 
 ## Packet Parsing And Rewrite
 
@@ -63,10 +63,11 @@ Fragmented IPv4 and IPv6 packets are currently rejected by the parser because th
 
 ## Current Implementation Batch
 
-The service scaffold now includes tested in-memory models that the packet backend will use:
+The service scaffold now includes tested in-memory and Windows-backed models that the packet backend will use:
 
 - `DnsCache` records queried domains, CNAMEs, A/AAAA answers, and TTL expiry so a later packet-only flow can recover its domain from the remote IP address.
 - `FlowTable` records five-tuples, process IDs, executable paths, domains, and routing decisions. Swap and pause operations clear managed flows so apps are forced to reconnect through the current rules.
+- `FlowContextCache` and `WindowsProcessResolver` provide packet-to-process metadata so application rules can match from the packet loop.
 - `NatTable` records original and translated five-tuples so outbound source rewrites and inbound destination restoration are deterministic.
 - `AdapterInventory` filters physical Ethernet/Wi-Fi candidates and detects active VPN/tunnel-style adapters before enabling routing.
 

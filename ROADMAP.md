@@ -14,11 +14,12 @@ Completed scaffold:
 - Maintain outbound NAT mappings and inbound reverse mappings for rewritten packets.
 - Dynamically bind WinDivert `Recv`, `Send`, and `WinDivertHelperCalcChecksums`.
 - Run packets through a tested packet pump boundary that forwards, drops, or recalculates checksums before reinjection.
+- Resolve packet process context from a cache and from Windows IP Helper TCP/UDP owner-PID tables for application-rule matching.
 
 Remaining:
 
 - Wire the WinDivert Network packet pump into the SCM-hosted service lifecycle.
-- Correlate five-tuples to PID and executable path through WinDivert Flow/Socket layers.
+- Feed the Windows process resolver into the SCM-hosted packet loop and add real dual-NIC validation.
 - Validate TCP, UDP, and QUIC on a real Ethernet + Wi-Fi machine.
 
 ## Milestone 2: Local Service

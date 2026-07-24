@@ -2,9 +2,11 @@ pub mod runtime;
 pub use runtime::WindivertRuntime;
 
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::backend::{BackendStatus, CaptureBackend};
 use crate::control::{PacketRouteOutcome, ServiceController};
+use crate::process_context::{NoopProcessResolver, PacketProcessResolver};
 use linkroute_core::{
     FlowDescriptor, LinkState, PacketDirection, RouteAction, RouteConfig, RouteDecision,
 };
@@ -158,21 +160,52 @@ where
 }
 
 #[allow(dead_code)]
-pub struct ControllerPacketHandler<'controller, F> {
-    controller: &'controller mut ServiceController,
-    now_epoch_seconds: F,
+#[cfg(windows)]
+pub fn run_controller_network_packet_pump<S>(
+    runtime: &WindivertRuntime,
+    controller: &mut ServiceController,
+    should_stop: S,
+) -> Result<PacketPumpStats, String>
+where
+    S: FnMut(&PacketPumpStats) -> bool,
+{
+    let mut handler = ControllerPacketHandler::with_process_resolver(
+        controller,
+        current_epoch_seconds,
+        crate::process_context::WindowsProcessResolver,
+    );
+    run_network_packet_pump(runtime, &mut handler, should_stop)
 }
 
 #[allow(dead_code)]
-impl<'controller, F> ControllerPacketHandler<'controller, F> {
+pub struct ControllerPacketHandler<'controller, F, R = NoopProcessResolver> {
+    controller: &'controller mut ServiceController,
+    now_epoch_seconds: F,
+    process_resolver: R,
+}
+
+#[allow(dead_code)]
+impl<'controller, F> ControllerPacketHandler<'controller, F, NoopProcessResolver> {
     pub fn new(controller: &'controller mut ServiceController, now_epoch_seconds: F) -> Self {
-        Self { controller, now_epoch_seconds }
+        Self::with_process_resolver(controller, now_epoch_seconds, NoopProcessResolver)
     }
 }
 
-impl<F> PacketHandler for ControllerPacketHandler<'_, F>
+#[allow(dead_code)]
+impl<'controller, F, R> ControllerPacketHandler<'controller, F, R> {
+    pub fn with_process_resolver(
+        controller: &'controller mut ServiceController,
+        now_epoch_seconds: F,
+        process_resolver: R,
+    ) -> Self {
+        Self { controller, now_epoch_seconds, process_resolver }
+    }
+}
+
+impl<F, R> PacketHandler for ControllerPacketHandler<'_, F, R>
 where
     F: FnMut() -> u64,
+    R: PacketProcessResolver,
 {
     fn handle_packet(
         &mut self,
@@ -180,8 +213,15 @@ where
         direction: PacketDirection,
     ) -> Result<PacketDisposition, String> {
         let now_epoch_seconds = (self.now_epoch_seconds)();
-        let outcome =
-            self.controller.process_packet(now_epoch_seconds, packet, direction, 0, None, None)?;
+        let process_context = self.process_resolver.resolve_packet(packet, direction);
+        let outcome = self.controller.process_packet(
+            now_epoch_seconds,
+            packet,
+            direction,
+            process_context.process_id,
+            process_context.exe_path,
+            process_context.explicit_domain,
+        )?;
 
         Ok(match outcome {
             PacketRouteOutcome::Forwarded { .. } => PacketDisposition::ForwardUnchanged,
@@ -189,6 +229,10 @@ where
             PacketRouteOutcome::Rewritten { .. } => PacketDisposition::ForwardRecalculateChecksums,
         })
     }
+}
+
+fn current_epoch_seconds() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|duration| duration.as_secs()).unwrap_or(0)
 }
 
 fn send_complete_packet<I: PacketIo>(
@@ -267,12 +311,19 @@ impl CaptureBackend for WindivertBackend {
 mod tests {
     use std::collections::VecDeque;
     use std::fs;
+    use std::net::{IpAddr, Ipv4Addr};
 
-    use linkroute_core::PacketDirection;
+    use crate::backend::{BackendStatus, CaptureBackend};
+    use crate::process_context::{FlowContextCache, PacketProcessContext};
+    use linkroute_core::{
+        parse_ip_packet, AdapterInventory, AdapterKind, AdapterSelection, ApplicationRule,
+        FlowDescriptor, FlowKey, LinkState, NetworkAdapter, Outlet, PacketDirection, Protocol,
+        RouteAction, RouteConfig, RouteDecision,
+    };
 
     use super::{
-        run_packet_pump, PacketDisposition, PacketHandler, PacketIo, WindivertAddress,
-        WindivertProbe,
+        run_packet_pump, ControllerPacketHandler, PacketDisposition, PacketHandler, PacketIo,
+        WindivertAddress, WindivertProbe,
     };
 
     #[test]
@@ -343,6 +394,132 @@ mod tests {
         assert_eq!(stats.sent, 0);
         assert_eq!(stats.dropped, 1);
         assert!(io.sent_packets.is_empty());
+    }
+
+    #[test]
+    fn controller_packet_handler_uses_resolved_process_context_for_app_rule() {
+        let mut controller = controller_with_app_rule(Outlet::Ethernet);
+        controller.set_adapters(sample_adapters(), sample_selection());
+        controller.start().unwrap();
+
+        let mut process_cache = FlowContextCache::default();
+        process_cache.insert(
+            sample_flow_key(),
+            PacketProcessContext::new(4242, Some(String::from(r"C:\Apps\browser.exe")), None),
+        );
+        let mut handler =
+            ControllerPacketHandler::with_process_resolver(&mut controller, || 100, process_cache);
+        let mut packet = sample_ipv4_tcp_packet();
+
+        let disposition = handler.handle_packet(&mut packet, PacketDirection::Outbound).unwrap();
+
+        assert_eq!(disposition, PacketDisposition::ForwardRecalculateChecksums);
+        let parsed = parse_ip_packet(&packet).unwrap();
+        assert_eq!(parsed.source_addr, IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9)));
+    }
+
+    fn controller_with_app_rule(outlet: Outlet) -> crate::control::ServiceController {
+        let mut config = RouteConfig::enabled();
+        config
+            .application_rules
+            .push(ApplicationRule::new("app", "Browser", r"C:\Apps\browser.exe", outlet).unwrap());
+        crate::control::ServiceController::new(config, Box::new(FakeBackend::default()))
+    }
+
+    fn sample_adapters() -> AdapterInventory {
+        AdapterInventory::new(vec![NetworkAdapter {
+            id: String::from("eth"),
+            name: String::from("Ethernet"),
+            kind: AdapterKind::Ethernet,
+            interface_index: 10,
+            up: true,
+            physical: true,
+            addresses: vec![IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9))],
+        }])
+    }
+
+    fn sample_selection() -> AdapterSelection {
+        AdapterSelection { ethernet_id: Some(String::from("eth")), wifi_id: None }
+    }
+
+    fn sample_flow_key() -> FlowKey {
+        FlowKey {
+            protocol: Protocol::Tcp,
+            local_addr: IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10)),
+            local_port: 50000,
+            remote_addr: IpAddr::V4(Ipv4Addr::new(203, 0, 113, 20)),
+            remote_port: 443,
+        }
+    }
+
+    fn sample_ipv4_tcp_packet() -> Vec<u8> {
+        ipv4_tcp_packet(Ipv4Addr::new(192, 0, 2, 10), 50000, Ipv4Addr::new(203, 0, 113, 20), 443)
+    }
+
+    fn ipv4_tcp_packet(
+        source_addr: Ipv4Addr,
+        source_port: u16,
+        destination_addr: Ipv4Addr,
+        destination_port: u16,
+    ) -> Vec<u8> {
+        let mut packet = vec![0_u8; 40];
+        packet[0] = 0x45;
+        packet[2..4].copy_from_slice(&40_u16.to_be_bytes());
+        packet[8] = 64;
+        packet[9] = 6;
+        packet[12..16].copy_from_slice(&source_addr.octets());
+        packet[16..20].copy_from_slice(&destination_addr.octets());
+        packet[20..22].copy_from_slice(&source_port.to_be_bytes());
+        packet[22..24].copy_from_slice(&destination_port.to_be_bytes());
+        packet
+    }
+
+    #[derive(Default)]
+    struct FakeBackend {
+        running: bool,
+        active_flows: usize,
+    }
+
+    impl CaptureBackend for FakeBackend {
+        fn name(&self) -> &'static str {
+            "fake"
+        }
+
+        fn start(&mut self, _config: &RouteConfig) -> Result<(), String> {
+            self.running = true;
+            Ok(())
+        }
+
+        fn stop(&mut self) -> Result<(), String> {
+            self.running = false;
+            self.active_flows = 0;
+            Ok(())
+        }
+
+        fn status(&self) -> BackendStatus {
+            BackendStatus {
+                name: self.name(),
+                running: self.running,
+                active_flows: self.active_flows,
+            }
+        }
+
+        fn close_managed_flows(&mut self) -> Result<usize, String> {
+            let closed = self.active_flows;
+            self.active_flows = 0;
+            Ok(closed)
+        }
+
+        fn apply_decision(
+            &mut self,
+            _flow: &FlowDescriptor,
+            decision: &RouteDecision,
+            _links: LinkState,
+        ) {
+            if !matches!(decision.action, RouteAction::UseSystemDefault) {
+                self.active_flows += 1;
+            }
+        }
     }
 
     struct FakePacketIo {

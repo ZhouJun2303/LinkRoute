@@ -8,11 +8,12 @@ Outbound flow:
 
 1. Parse the raw IPv4/IPv6 packet with `linkroute_core::parse_ip_packet`.
 2. Convert the packet to an outbound `FlowKey`.
-3. Resolve a domain from the DNS cache when one was not supplied by process correlation.
-4. Run the rule engine.
-5. For `UseSystemDefault`, forward unchanged.
-6. For `Block`, drop.
-7. For `UseOutlet`, choose an Ethernet/Wi-Fi source address with the same IP family as the remote endpoint, rewrite the packet source endpoint, and store the original-to-translated NAT mapping.
+3. Resolve process context from the packet process resolver, including PID and EXE path when available.
+4. Resolve a domain from the DNS cache when one was not supplied by process correlation.
+5. Run the rule engine.
+6. For `UseSystemDefault`, forward unchanged.
+7. For `Block`, drop.
+8. For `UseOutlet`, choose an Ethernet/Wi-Fi source address with the same IP family as the remote endpoint, rewrite the packet source endpoint, and store the original-to-translated NAT mapping.
 
 Inbound flow:
 
@@ -31,17 +32,23 @@ Only active physical Ethernet/Wi-Fi adapters are outlet candidates. Virtual adap
 
 `AdapterInventory::source_address_for` selects a source address matching the packet remote address family. If no source address is available for a matched rule, the packet is dropped to avoid silently falling back to the wrong network.
 
+## Process Context
+
+`linkroute_service::process_context` provides the packet-to-process boundary used by the packet pump. `FlowContextCache` stores five-tuple to PID/EXE/domain metadata and resolves both outbound and reverse-direction packets. `WindowsProcessResolver` uses IP Helper owner-PID TCP/UDP tables to resolve live packet owners and `QueryFullProcessImageNameW` to recover the executable path used by application rules.
+
+TCP owner rows are matched by the full local/remote five-tuple. UDP owner rows are matched by protocol and local endpoint because Windows owner UDP tables do not expose a remote endpoint. If process lookup fails, the resolver returns an unknown context so unmatched traffic falls back to the normal rule engine behavior.
+
 ## WinDivert Packet Pump
 
 `linkroute_service::windivert::run_packet_pump` is the tested loop boundary. It receives packet bytes and `WINDIVERT_ADDRESS` metadata, calls a `PacketHandler`, drops packets with `PacketDisposition::Drop`, recalculates checksums for rewritten packets, and sends complete packets back through WinDivert.
 
-`run_network_packet_pump` opens the WinDivert Network layer with `LINKROUTE_NETWORK_FILTER` and delegates to the generic pump. `ControllerPacketHandler` adapts `ServiceController::process_packet` to the pump by mapping forwarded, dropped, and rewritten route outcomes to packet dispositions.
+`run_network_packet_pump` opens the WinDivert Network layer with `LINKROUTE_NETWORK_FILTER` and delegates to the generic pump. `ControllerPacketHandler` adapts `ServiceController::process_packet` to the pump by resolving process context first, then mapping forwarded, dropped, and rewritten route outcomes to packet dispositions. `run_controller_network_packet_pump` combines the WinDivert Network pump, `ServiceController`, wall-clock timestamps, and `WindowsProcessResolver` for the SCM service entry point.
 
-The remaining service lifecycle work is to run this pump from the SCM-hosted service, stop it cleanly on shutdown/pause/swap/uninstall, and maintain Flow/Socket layer correlation tables so outbound packets receive PID and executable path before rule evaluation.
+The remaining service lifecycle work is to run this pump from the SCM-hosted service and stop it cleanly on shutdown/pause/swap/uninstall.
 
 ## Verification
 
-Automated tests cover NAT table indexing, outbound source rewrites, inbound destination restoration, missing-source-address drops, adapter source selection, virtual adapter filtering, packet parser/rewrite edge cases, and packet pump forwarding/drop/checksum behavior.
+Automated tests cover NAT table indexing, outbound source rewrites, inbound destination restoration, missing-source-address drops, adapter source selection, virtual adapter filtering, packet parser/rewrite edge cases, process-context cache lookup, Windows owner-row conversion, application-rule packet handler context, and packet pump forwarding/drop/checksum behavior.
 
 Manual status check:
 

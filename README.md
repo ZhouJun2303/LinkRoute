@@ -6,9 +6,9 @@ GitHub repository: https://github.com/ZhouJun2303/LinkRoute
 
 ## Current Status
 
-The repository currently contains a verified Rust workspace, routing rule engine, packet parser, packet endpoint rewrite helpers, service-side NAT mapping, Windows adapter enumeration, configuration store, service IPC handler, Windows service registration commands, ACL-restricted named-pipe IPC, lightweight UI-to-service fallback bridge, native Win32 tray shell, WinDivert asset pipeline, update manifest verifier, installer packaging, and release automation.
+The repository currently contains a verified Rust workspace, routing rule engine, packet parser, packet endpoint rewrite helpers, service-side NAT mapping, Windows adapter enumeration, packet process-context resolution, configuration store, service IPC handler, Windows service registration commands, ACL-restricted named-pipe IPC, lightweight UI-to-service fallback bridge, native Win32 tray shell, WinDivert asset pipeline, update manifest verifier, installer packaging, and release automation.
 
-The remaining core runtime work is the long-running WinDivert packet loop, PID/executable correlation, live service status streaming, and the full rules/settings editor; see [ROADMAP.md](ROADMAP.md).
+The remaining core runtime work is wiring the long-running WinDivert packet loop into the SCM service lifecycle, live service status streaming, and the full rules/settings editor; see [ROADMAP.md](ROADMAP.md).
 
 ## What Works Now
 
@@ -19,6 +19,7 @@ The remaining core runtime work is the long-running WinDivert packet loop, PID/e
 - Service-side NAT table for outbound source rewrite and inbound destination restoration.
 - Packet processing result model for forwarded, dropped, and rewritten packets.
 - DNS A/AAAA/CNAME cache with TTL expiry.
+- Windows TCP/UDP owner-PID lookup and process image path resolution for application-rule packet context.
 - Five-tuple flow table and managed-flow clearing for swap behavior.
 - Windows `GetAdaptersAddresses` inventory with Ethernet/Wi-Fi classification, physical adapter filtering, source-address selection, and VPN/tunnel detection.
 - `%ProgramData%\LinkRoute\config.toml` persistence with invalid-config backup.

@@ -12,8 +12,9 @@ All notable changes to LinkRoute will be documented in this file.
 - ServiceController raw-packet routing decision path that records parsed packet flows.
 - Service-side NAT table for outbound source rewrite mappings and inbound destination restoration.
 - Packet processing outcome model for forwarded, dropped, and rewritten packets.
-- DNS cache, flow table, adapter selection, and VPN/tunnel detection models.
+- DNS cache, flow table, packet process-context cache, adapter selection, and VPN/tunnel detection models.
 - Windows `GetAdaptersAddresses` adapter enumeration with Ethernet/Wi-Fi classification, source-address selection, and virtual adapter filtering.
+- Windows IP Helper TCP/UDP owner-PID resolver plus process image path lookup for application-rule packet context.
 - Service config persistence under `%ProgramData%\LinkRoute` with invalid-config backup.
 - Versioned IPC request/response JSON helpers shared by service and UI.
 - Service IPC command handler for status, config, enable, pause, swap, and diagnostics.
@@ -30,7 +31,7 @@ All notable changes to LinkRoute will be documented in this file.
 ### Not Complete Yet
 
 - SCM-hosted long-running WinDivert Network loop wired to service shutdown/pause/swap lifecycle.
-- PID/executable correlation from WinDivert Flow/Socket layers.
+- SCM wiring for the Windows process resolver inside the long-running packet loop.
 - Live service status streaming.
 - Full rules/settings editor window.
 - Real release signing key integration.
