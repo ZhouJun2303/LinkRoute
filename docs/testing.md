@@ -12,12 +12,23 @@
 - Swap behavior.
 - Duplicate rule detection.
 - ConfigStore missing-file defaulting, TOML roundtrip, invalid-file backup, and validation errors.
-- Update manifest parsing and signature verification once crypto is added.
+- IPC request/response JSON roundtrips.
+- Service IPC command handler for status, config, enable, pause, swap, and diagnostics.
+- UI bridge path resolution and status summary formatting.
+- Update manifest parsing and signature verification.
+
+## Manual UI Checks
+
+- `linkroute-ui --status-json` returns the same protocol shape as `linkroute-service --status-json`.
+- `linkroute-ui --status` prints a compact status summary.
+- `linkroute-ui --tray` adds a notification-area icon.
+- Tray right-click menu opens and executes status, diagnostics, enable/pause, swap, and exit.
+- `Ctrl+Alt+L` toggles enable/pause.
+- `Ctrl+Alt+S` swaps Ethernet/Wi-Fi rule targets.
 
 ## Real Hardware
 
-A self-hosted Windows 10/11 x64 machine with active Ethernet and Wi-Fi adapters
-is required for release gates:
+A self-hosted Windows 10/11 x64 machine with active Ethernet and Wi-Fi adapters is required for release gates:
 
 - IPv4 and IPv6 TCP routing.
 - UDP and QUIC routing.
@@ -35,7 +46,3 @@ is required for release gates:
 - Idle CPU: below 0.5%.
 - 1 Gbps throughput: at least 90% of baseline.
 - Added median latency: below 1 ms.
-
-
-
-

@@ -23,7 +23,19 @@ cargo build --workspace --release
 $request = @{ type = "get-status" } | ConvertTo-Json -Compress
 Set-Content -LiteralPath .\request.json -Value $request -Encoding ASCII
 .\target\debug\linkroute-service.exe --handle-request-file .\request.json
+Remove-Item -LiteralPath .\request.json -Force
+.\target\debug\linkroute-ui.exe --service-path
+.\target\debug\linkroute-ui.exe --status-json
+.\target\debug\linkroute-ui.exe --status
 ```
+
+Run the tray manually when you need interactive validation:
+
+```powershell
+.\target\debug\linkroute-ui.exe --tray
+```
+
+The tray process stays alive until the Exit menu item is selected.
 
 ## Build Installer
 
@@ -36,6 +48,4 @@ cargo build --workspace --release
 
 ## Current Architecture Boundary
 
-`linkroute_core` is safe Rust and must remain free of `unsafe`. Windows API and WinDivert FFI are confined to service-side modules.
-
-
+`linkroute_core` is safe Rust and must remain free of `unsafe`. Windows API and WinDivert FFI are confined to service-side and UI-shell modules.

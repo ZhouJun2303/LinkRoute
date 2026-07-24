@@ -15,8 +15,8 @@ pub use dns::{DnsCache, DnsRecord};
 pub use engine::RouteEngine;
 pub use flow::{FlowKey, FlowRecord, FlowTable};
 pub use ipc::{
-    request_from_json, response_to_json, AdapterSnapshot, IpcError, IpcRequest, IpcResponse,
-    ServiceSnapshot, IPC_PROTOCOL_VERSION,
+    request_from_json, request_to_json, response_from_json, response_to_json, AdapterSnapshot,
+    IpcError, IpcRequest, IpcResponse, ServiceSnapshot, IPC_PROTOCOL_VERSION,
 };
 pub use model::{
     ApplicationRule, DecisionSource, DomainMatchMode, DomainRule, FlowDescriptor, LinkState,

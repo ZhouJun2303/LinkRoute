@@ -83,6 +83,14 @@ pub fn request_from_json(text: &str) -> Result<IpcRequest, serde_json::Error> {
     serde_json::from_str(text)
 }
 
+pub fn request_to_json(request: &IpcRequest) -> Result<String, serde_json::Error> {
+    serde_json::to_string(request)
+}
+
+pub fn response_from_json(text: &str) -> Result<IpcResponse, serde_json::Error> {
+    serde_json::from_str(text)
+}
+
 pub fn response_to_json(response: &IpcResponse) -> Result<String, serde_json::Error> {
     serde_json::to_string(response)
 }
@@ -100,8 +108,8 @@ mod tests {
             ApplicationRule::new("app", "Browser", r"C:\Apps\browser.exe", Outlet::Wifi).unwrap(),
         );
         let request = IpcRequest::SetConfig { config };
-        let json = serde_json::to_string(&request).unwrap();
-        let decoded: IpcRequest = serde_json::from_str(&json).unwrap();
+        let json = request_to_json(&request).unwrap();
+        let decoded = request_from_json(&json).unwrap();
 
         assert_eq!(decoded, request);
     }
@@ -118,7 +126,7 @@ mod tests {
         };
         let response = IpcResponse::Status { status };
         let json = response_to_json(&response).unwrap();
-        let decoded: IpcResponse = serde_json::from_str(&json).unwrap();
+        let decoded = response_from_json(&json).unwrap();
 
         assert_eq!(decoded, response);
     }

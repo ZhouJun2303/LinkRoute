@@ -13,14 +13,15 @@ This roadmap tracks the path from the current engineering scaffold to a usable W
 ## Milestone 2: Local Service
 
 - Install as a Windows service under `LocalSystem`.
-- Add ACL-restricted named-pipe IPC for UI commands and status streaming.
-- Implement enable, pause, swap, diagnostics, and config update operations.
+- Replace the temporary process bridge with ACL-restricted named-pipe IPC.
+- Add live status streaming so tray state follows the running service.
 - Add adapter enumeration through Windows APIs.
 
 ## Milestone 3: Native UI
 
-- Replace the current UI scaffold with a native Win32 window.
-- Add application rules, domain rules, settings, real-time rates, tray menu, and hotkeys.
+- Expand the basic Win32 tray shell into a compact native window.
+- Add application rules, domain rules, settings, and real-time rates.
+- Keep tray menu and global hotkeys small, fast, and always available.
 - Support Simplified Chinese and English.
 
 ## Milestone 4: Release Hardening
