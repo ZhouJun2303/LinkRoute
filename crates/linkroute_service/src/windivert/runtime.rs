@@ -215,6 +215,14 @@ impl WindivertSession<'_> {
         }
         Ok(send_len as usize)
     }
+
+    pub fn calc_checksums(
+        &self,
+        packet: &mut [u8],
+        address: &mut WindivertAddress,
+    ) -> Result<(), String> {
+        self.runtime.calc_checksums(packet, address)
+    }
 }
 
 impl Drop for WindivertSession<'_> {

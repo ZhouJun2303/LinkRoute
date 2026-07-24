@@ -13,10 +13,11 @@ Completed scaffold:
 - Rewrite packet source/destination addresses and ports before WinDivert checksum recalculation.
 - Maintain outbound NAT mappings and inbound reverse mappings for rewritten packets.
 - Dynamically bind WinDivert `Recv`, `Send`, and `WinDivertHelperCalcChecksums`.
+- Run packets through a tested packet pump boundary that forwards, drops, or recalculates checksums before reinjection.
 
 Remaining:
 
-- Open a long-running WinDivert Network handle and reinject processed packets.
+- Wire the WinDivert Network packet pump into the SCM-hosted service lifecycle.
 - Correlate five-tuples to PID and executable path through WinDivert Flow/Socket layers.
 - Validate TCP, UDP, and QUIC on a real Ethernet + Wi-Fi machine.
 

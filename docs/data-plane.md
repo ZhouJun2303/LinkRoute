@@ -31,21 +31,17 @@ Only active physical Ethernet/Wi-Fi adapters are outlet candidates. Virtual adap
 
 `AdapterInventory::source_address_for` selects a source address matching the packet remote address family. If no source address is available for a matched rule, the packet is dropped to avoid silently falling back to the wrong network.
 
-## WinDivert Wiring Still Needed
+## WinDivert Packet Pump
 
-The remaining runtime loop should:
+`linkroute_service::windivert::run_packet_pump` is the tested loop boundary. It receives packet bytes and `WINDIVERT_ADDRESS` metadata, calls a `PacketHandler`, drops packets with `PacketDisposition::Drop`, recalculates checksums for rewritten packets, and sends complete packets back through WinDivert.
 
-1. Open the WinDivert Network layer with `LINKROUTE_NETWORK_FILTER`.
-2. Receive packet bytes and `WINDIVERT_ADDRESS` metadata.
-3. Use `WindivertAddress::direction()` to call `ServiceController::process_packet`.
-4. Drop packets with `PacketRouteOutcome::Dropped`.
-5. Recalculate checksums and reinject forwarded or rewritten packets.
-6. Maintain Flow/Socket layer correlation tables so outbound packets receive PID and executable path before rule evaluation.
-7. Stop cleanly on service shutdown, pause, swap, and uninstall.
+`run_network_packet_pump` opens the WinDivert Network layer with `LINKROUTE_NETWORK_FILTER` and delegates to the generic pump. `ControllerPacketHandler` adapts `ServiceController::process_packet` to the pump by mapping forwarded, dropped, and rewritten route outcomes to packet dispositions.
+
+The remaining service lifecycle work is to run this pump from the SCM-hosted service, stop it cleanly on shutdown/pause/swap/uninstall, and maintain Flow/Socket layer correlation tables so outbound packets receive PID and executable path before rule evaluation.
 
 ## Verification
 
-Automated tests cover NAT table indexing, outbound source rewrites, inbound destination restoration, missing-source-address drops, adapter source selection, virtual adapter filtering, and packet parser/rewrite edge cases.
+Automated tests cover NAT table indexing, outbound source rewrites, inbound destination restoration, missing-source-address drops, adapter source selection, virtual adapter filtering, packet parser/rewrite edge cases, and packet pump forwarding/drop/checksum behavior.
 
 Manual status check:
 

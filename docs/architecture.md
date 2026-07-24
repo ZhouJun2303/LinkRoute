@@ -31,7 +31,7 @@ The first backend is planned around WinDivert:
 - The service maintains five-tuple to process/rule mappings.
 - Outbound packets are rewritten for the selected interface and inbound packets are reverse-translated.
 
-The backend trait in `linkroute_service` is intentionally narrow so a future WFP implementation can replace WinDivert without changing UI or rule storage.
+The backend trait in `linkroute_service` is intentionally narrow so a future WFP implementation can replace WinDivert without changing UI or rule storage. The WinDivert packet pump is separated behind `PacketIo` and `PacketHandler` so the receive/process/checksum/send loop can be tested without opening the driver.
 
 ## Packet Parsing And Rewrite
 

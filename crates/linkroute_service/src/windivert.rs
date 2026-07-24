@@ -4,7 +4,13 @@ pub use runtime::WindivertRuntime;
 use std::path::PathBuf;
 
 use crate::backend::{BackendStatus, CaptureBackend};
-use linkroute_core::{FlowDescriptor, LinkState, RouteAction, RouteConfig, RouteDecision};
+use crate::control::{PacketRouteOutcome, ServiceController};
+use linkroute_core::{
+    FlowDescriptor, LinkState, PacketDirection, RouteAction, RouteConfig, RouteDecision,
+};
+use runtime::{
+    WindivertAddress, WindivertLayer, WindivertSession, LINKROUTE_NETWORK_FILTER, MAX_PACKET_SIZE,
+};
 
 pub struct WindivertBackend {
     running: bool,
@@ -58,6 +64,167 @@ impl WindivertProbe {
     }
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PacketDisposition {
+    ForwardUnchanged,
+    ForwardRecalculateChecksums,
+    Drop,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PacketPumpStats {
+    pub received: usize,
+    pub sent: usize,
+    pub dropped: usize,
+    pub checksummed: usize,
+}
+
+pub trait PacketIo {
+    fn recv_packet(
+        &mut self,
+        packet: &mut [u8],
+        address: &mut WindivertAddress,
+    ) -> Result<usize, String>;
+
+    fn send_packet(&mut self, packet: &[u8], address: &WindivertAddress) -> Result<usize, String>;
+
+    fn calc_checksums(
+        &mut self,
+        packet: &mut [u8],
+        address: &mut WindivertAddress,
+    ) -> Result<(), String>;
+}
+
+pub trait PacketHandler {
+    fn handle_packet(
+        &mut self,
+        packet: &mut [u8],
+        direction: PacketDirection,
+    ) -> Result<PacketDisposition, String>;
+}
+
+pub fn run_packet_pump<I, H, S>(
+    io: &mut I,
+    handler: &mut H,
+    mut should_stop: S,
+) -> Result<PacketPumpStats, String>
+where
+    I: PacketIo,
+    H: PacketHandler,
+    S: FnMut(&PacketPumpStats) -> bool,
+{
+    let mut stats = PacketPumpStats::default();
+    let mut packet = vec![0_u8; MAX_PACKET_SIZE];
+    let mut address = WindivertAddress::default();
+
+    while !should_stop(&stats) {
+        let packet_len = io.recv_packet(&mut packet, &mut address)?;
+        stats.received = stats.received.saturating_add(1);
+        let packet = &mut packet[..packet_len];
+
+        match handler.handle_packet(packet, address.direction())? {
+            PacketDisposition::Drop => {
+                stats.dropped = stats.dropped.saturating_add(1);
+            }
+            PacketDisposition::ForwardUnchanged => {
+                send_complete_packet(io, packet, &address)?;
+                stats.sent = stats.sent.saturating_add(1);
+            }
+            PacketDisposition::ForwardRecalculateChecksums => {
+                io.calc_checksums(packet, &mut address)?;
+                stats.checksummed = stats.checksummed.saturating_add(1);
+                send_complete_packet(io, packet, &address)?;
+                stats.sent = stats.sent.saturating_add(1);
+            }
+        }
+    }
+
+    Ok(stats)
+}
+
+#[allow(dead_code)]
+pub fn run_network_packet_pump<H, S>(
+    runtime: &WindivertRuntime,
+    handler: &mut H,
+    should_stop: S,
+) -> Result<PacketPumpStats, String>
+where
+    H: PacketHandler,
+    S: FnMut(&PacketPumpStats) -> bool,
+{
+    let mut session = runtime.open(LINKROUTE_NETWORK_FILTER, WindivertLayer::Network, 0, 0)?;
+    run_packet_pump(&mut session, handler, should_stop)
+}
+
+#[allow(dead_code)]
+pub struct ControllerPacketHandler<'controller, F> {
+    controller: &'controller mut ServiceController,
+    now_epoch_seconds: F,
+}
+
+#[allow(dead_code)]
+impl<'controller, F> ControllerPacketHandler<'controller, F> {
+    pub fn new(controller: &'controller mut ServiceController, now_epoch_seconds: F) -> Self {
+        Self { controller, now_epoch_seconds }
+    }
+}
+
+impl<F> PacketHandler for ControllerPacketHandler<'_, F>
+where
+    F: FnMut() -> u64,
+{
+    fn handle_packet(
+        &mut self,
+        packet: &mut [u8],
+        direction: PacketDirection,
+    ) -> Result<PacketDisposition, String> {
+        let now_epoch_seconds = (self.now_epoch_seconds)();
+        let outcome =
+            self.controller.process_packet(now_epoch_seconds, packet, direction, 0, None, None)?;
+
+        Ok(match outcome {
+            PacketRouteOutcome::Forwarded { .. } => PacketDisposition::ForwardUnchanged,
+            PacketRouteOutcome::Dropped { .. } => PacketDisposition::Drop,
+            PacketRouteOutcome::Rewritten { .. } => PacketDisposition::ForwardRecalculateChecksums,
+        })
+    }
+}
+
+fn send_complete_packet<I: PacketIo>(
+    io: &mut I,
+    packet: &[u8],
+    address: &WindivertAddress,
+) -> Result<(), String> {
+    let sent = io.send_packet(packet, address)?;
+    if sent != packet.len() {
+        return Err(format!("WinDivertSend wrote {sent} bytes for {} byte packet", packet.len()));
+    }
+    Ok(())
+}
+
+impl PacketIo for WindivertSession<'_> {
+    fn recv_packet(
+        &mut self,
+        packet: &mut [u8],
+        address: &mut WindivertAddress,
+    ) -> Result<usize, String> {
+        WindivertSession::recv_packet(self, packet, address)
+    }
+
+    fn send_packet(&mut self, packet: &[u8], address: &WindivertAddress) -> Result<usize, String> {
+        WindivertSession::send_packet(self, packet, address)
+    }
+
+    fn calc_checksums(
+        &mut self,
+        packet: &mut [u8],
+        address: &mut WindivertAddress,
+    ) -> Result<(), String> {
+        WindivertSession::calc_checksums(self, packet, address)
+    }
+}
+
 impl CaptureBackend for WindivertBackend {
     fn name(&self) -> &'static str {
         "windivert"
@@ -98,9 +265,15 @@ impl CaptureBackend for WindivertBackend {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
     use std::fs;
 
-    use super::WindivertProbe;
+    use linkroute_core::PacketDirection;
+
+    use super::{
+        run_packet_pump, PacketDisposition, PacketHandler, PacketIo, WindivertAddress,
+        WindivertProbe,
+    };
 
     #[test]
     fn probe_reports_missing_files() {
@@ -130,5 +303,128 @@ mod tests {
         assert!(probe.ready());
         assert!(probe.missing_files().is_empty());
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn packet_pump_sends_forwarded_packets() {
+        let mut io = FakePacketIo::new(vec![vec![1, 2, 3]]);
+        let mut handler = StaticHandler::new(PacketDisposition::ForwardUnchanged);
+
+        let stats = run_packet_pump(&mut io, &mut handler, |stats| stats.received >= 1).unwrap();
+
+        assert_eq!(stats.received, 1);
+        assert_eq!(stats.sent, 1);
+        assert_eq!(stats.dropped, 0);
+        assert_eq!(stats.checksummed, 0);
+        assert_eq!(io.sent_packets, vec![vec![1, 2, 3]]);
+    }
+
+    #[test]
+    fn packet_pump_recalculates_checksums_for_rewritten_packets() {
+        let mut io = FakePacketIo::new(vec![vec![1, 2, 3]]);
+        let mut handler = MutatingHandler;
+
+        let stats = run_packet_pump(&mut io, &mut handler, |stats| stats.received >= 1).unwrap();
+
+        assert_eq!(stats.sent, 1);
+        assert_eq!(stats.checksummed, 1);
+        assert_eq!(io.checksum_calls, 1);
+        assert_eq!(io.sent_packets, vec![vec![9, 2, 3]]);
+    }
+
+    #[test]
+    fn packet_pump_drops_packets_without_reinjection() {
+        let mut io = FakePacketIo::new(vec![vec![1, 2, 3]]);
+        let mut handler = StaticHandler::new(PacketDisposition::Drop);
+
+        let stats = run_packet_pump(&mut io, &mut handler, |stats| stats.received >= 1).unwrap();
+
+        assert_eq!(stats.received, 1);
+        assert_eq!(stats.sent, 0);
+        assert_eq!(stats.dropped, 1);
+        assert!(io.sent_packets.is_empty());
+    }
+
+    struct FakePacketIo {
+        recv_packets: VecDeque<Vec<u8>>,
+        sent_packets: Vec<Vec<u8>>,
+        checksum_calls: usize,
+    }
+
+    impl FakePacketIo {
+        fn new(packets: Vec<Vec<u8>>) -> Self {
+            Self {
+                recv_packets: VecDeque::from(packets),
+                sent_packets: Vec::new(),
+                checksum_calls: 0,
+            }
+        }
+    }
+
+    impl PacketIo for FakePacketIo {
+        fn recv_packet(
+            &mut self,
+            packet: &mut [u8],
+            _address: &mut WindivertAddress,
+        ) -> Result<usize, String> {
+            let next = self
+                .recv_packets
+                .pop_front()
+                .ok_or_else(|| String::from("no test packet queued"))?;
+            packet[..next.len()].copy_from_slice(&next);
+            Ok(next.len())
+        }
+
+        fn send_packet(
+            &mut self,
+            packet: &[u8],
+            _address: &WindivertAddress,
+        ) -> Result<usize, String> {
+            self.sent_packets.push(packet.to_vec());
+            Ok(packet.len())
+        }
+
+        fn calc_checksums(
+            &mut self,
+            _packet: &mut [u8],
+            _address: &mut WindivertAddress,
+        ) -> Result<(), String> {
+            self.checksum_calls += 1;
+            Ok(())
+        }
+    }
+
+    struct StaticHandler {
+        disposition: PacketDisposition,
+    }
+
+    impl StaticHandler {
+        fn new(disposition: PacketDisposition) -> Self {
+            Self { disposition }
+        }
+    }
+
+    impl PacketHandler for StaticHandler {
+        fn handle_packet(
+            &mut self,
+            _packet: &mut [u8],
+            direction: PacketDirection,
+        ) -> Result<PacketDisposition, String> {
+            assert_eq!(direction, PacketDirection::Inbound);
+            Ok(self.disposition)
+        }
+    }
+
+    struct MutatingHandler;
+
+    impl PacketHandler for MutatingHandler {
+        fn handle_packet(
+            &mut self,
+            packet: &mut [u8],
+            _direction: PacketDirection,
+        ) -> Result<PacketDisposition, String> {
+            packet[0] = 9;
+            Ok(PacketDisposition::ForwardRecalculateChecksums)
+        }
     }
 }

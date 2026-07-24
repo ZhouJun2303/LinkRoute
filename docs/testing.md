@@ -11,7 +11,7 @@
 - Service packet processing through `ServiceController::process_packet`.
 - Packet source/destination rewrite and checksum-field invalidation.
 - NAT table original/translated indexes, replacement, idle purge, outbound rewrite, inbound restore, and missing source-address drop behavior.
-- WinDivert address wrapper layout and direction/IP-version flag decoding.
+- WinDivert address wrapper layout, direction/IP-version flag decoding, and packet pump forwarding/drop/checksum behavior.
 - Windows adapter kind mapping and virtual adapter filtering.
 - DNS A/AAAA/CNAME cache TTL handling.
 - Flow table reverse lookup, idle purge, and managed-flow clearing.
