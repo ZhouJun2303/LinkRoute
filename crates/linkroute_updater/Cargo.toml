@@ -9,4 +9,4 @@ name = "linkroute-updater"
 path = "src/main.rs"
 
 [dependencies]
-ed25519-dalek = "2"
+ed25519-dalek = "3"
