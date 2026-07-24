@@ -20,6 +20,9 @@ cargo build --workspace --release
 .\target\debug\linkroute-service.exe --probe-windivert
 .\target\debug\linkroute-service.exe --load-windivert
 .\target\debug\linkroute-service.exe --status-json
+$request = @{ type = "get-status" } | ConvertTo-Json -Compress
+Set-Content -LiteralPath .\request.json -Value $request -Encoding ASCII
+.\target\debug\linkroute-service.exe --handle-request-file .\request.json
 ```
 
 ## Build Installer
@@ -34,4 +37,5 @@ cargo build --workspace --release
 ## Current Architecture Boundary
 
 `linkroute_core` is safe Rust and must remain free of `unsafe`. Windows API and WinDivert FFI are confined to service-side modules.
+
 

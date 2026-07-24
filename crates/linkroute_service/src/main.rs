@@ -1,15 +1,17 @@
 mod backend;
 mod config_store;
 mod control;
+mod ipc_handler;
 mod windivert;
 
 use std::net::{IpAddr, Ipv4Addr};
 
 use config_store::{ConfigSource, ConfigStore};
 use control::ServiceController;
+use ipc_handler::handle_ipc_request;
 use linkroute_core::{
-    response_to_json, ApplicationRule, FlowKey, IpcResponse, Outlet, Protocol, RouteAction,
-    RouteConfig,
+    request_from_json, response_to_json, ApplicationRule, FlowKey, IpcResponse, Outlet, Protocol,
+    RouteAction, RouteConfig,
 };
 use windivert::{WindivertBackend, WindivertProbe, WindivertRuntime};
 
@@ -21,6 +23,8 @@ fn main() {
         "--check-config" => check_config(),
         "--write-default-config" => write_default_config(),
         "--status-json" => status_json(),
+        "--handle-request-json" => handle_request_json(),
+        "--handle-request-file" => handle_request_file(),
         "--probe-windivert" => probe_windivert(),
         "--load-windivert" => load_windivert(),
         "--self-test" => self_test(),
@@ -28,7 +32,7 @@ fn main() {
         other => {
             eprintln!("unknown command: {other}");
             eprintln!(
-                "usage: linkroute-service [--run|--check-config|--write-default-config|--status-json|--probe-windivert|--load-windivert|--self-test|--version]"
+                "usage: linkroute-service [--run|--check-config|--write-default-config|--status-json|--handle-request-json <json>|--handle-request-file <path>|--probe-windivert|--load-windivert|--self-test|--version]"
             );
             std::process::exit(2);
         }
@@ -98,6 +102,46 @@ fn report_config_source(source: &ConfigSource, backup_path: Option<&std::path::P
     }
 }
 
+fn handle_request_json() {
+    let Some(json) = std::env::args().nth(2) else {
+        eprintln!("missing request JSON");
+        std::process::exit(2);
+    };
+    handle_request_text(&json);
+}
+
+fn handle_request_file() {
+    let Some(path) = std::env::args().nth(2) else {
+        eprintln!("missing request file path");
+        std::process::exit(2);
+    };
+    let json = match std::fs::read_to_string(path) {
+        Ok(json) => json,
+        Err(error) => {
+            eprintln!("could not read request file: {error}");
+            std::process::exit(1);
+        }
+    };
+    handle_request_text(&json);
+}
+fn handle_request_text(json: &str) {
+    let request = match request_from_json(json) {
+        Ok(request) => request,
+        Err(error) => {
+            eprintln!("invalid request JSON: {error}");
+            std::process::exit(2);
+        }
+    };
+    let store = ConfigStore::program_data();
+    let response = handle_ipc_request(&store, request);
+    match response_to_json(&response) {
+        Ok(json) => println!("{json}"),
+        Err(error) => {
+            eprintln!("could not serialize response: {error}");
+            std::process::exit(1);
+        }
+    }
+}
 fn status_json() {
     let store = ConfigStore::program_data();
     let loaded = match store.load_or_default() {
