@@ -2,7 +2,9 @@ pub mod runtime;
 pub use runtime::WindivertRuntime;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::backend::{BackendStatus, CaptureBackend};
@@ -12,7 +14,8 @@ use linkroute_core::{
     FlowDescriptor, LinkState, PacketDirection, RouteAction, RouteConfig, RouteDecision,
 };
 use runtime::{
-    WindivertAddress, WindivertLayer, WindivertSession, LINKROUTE_NETWORK_FILTER, MAX_PACKET_SIZE,
+    WindivertAddress, WindivertLayer, WindivertOwnedSession, WindivertSession,
+    LINKROUTE_NETWORK_FILTER, MAX_PACKET_SIZE,
 };
 
 pub struct WindivertBackend {
@@ -107,6 +110,80 @@ pub trait PacketHandler {
     ) -> Result<PacketDisposition, String>;
 }
 
+pub struct PacketWorker {
+    stop_requested: Arc<AtomicBool>,
+    shutdown: Box<dyn Fn() -> Result<(), String> + Send + Sync>,
+    join: Option<JoinHandle<Result<PacketPumpStats, String>>>,
+}
+
+#[allow(dead_code)]
+impl PacketWorker {
+    pub fn spawn<I, H>(
+        mut io: I,
+        mut handler: H,
+        shutdown: impl Fn() -> Result<(), String> + Send + Sync + 'static,
+    ) -> Self
+    where
+        I: PacketIo + Send + 'static,
+        H: PacketHandler + Send + 'static,
+    {
+        let stop_requested = Arc::new(AtomicBool::new(false));
+        let thread_stop = Arc::clone(&stop_requested);
+        let join = thread::spawn(move || {
+            run_packet_pump(&mut io, &mut handler, |_| thread_stop.load(Ordering::SeqCst))
+        });
+
+        Self { stop_requested, shutdown: Box::new(shutdown), join: Some(join) }
+    }
+
+    #[cfg(windows)]
+    #[allow(dead_code)]
+    pub fn start_controller_worker(
+        runtime: Arc<WindivertRuntime>,
+        controller: Arc<Mutex<ServiceController>>,
+    ) -> Result<Self, String> {
+        let session = WindivertRuntime::open_owned(
+            runtime,
+            LINKROUTE_NETWORK_FILTER,
+            WindivertLayer::Network,
+            0,
+            0,
+        )?;
+        let stopper = session.stopper();
+        let shutdown = stopper.clone();
+        let handler = SharedControllerPacketHandler::with_process_resolver(
+            controller,
+            current_epoch_seconds,
+            crate::process_context::WindowsProcessResolver,
+        );
+
+        Ok(Self::spawn(session, handler, move || shutdown.shutdown_recv()))
+    }
+
+    pub fn request_stop(&self) -> Result<(), String> {
+        if !self.stop_requested.swap(true, Ordering::SeqCst) {
+            (self.shutdown)()?;
+        }
+        Ok(())
+    }
+
+    pub fn join(mut self) -> Result<PacketPumpStats, String> {
+        self.request_stop()?;
+        let Some(join) = self.join.take() else {
+            return Ok(PacketPumpStats::default());
+        };
+        join.join().map_err(|_| String::from("packet worker thread panicked"))?
+    }
+}
+
+impl Drop for PacketWorker {
+    fn drop(&mut self) {
+        if self.join.is_some() {
+            self.stop_requested.store(true, Ordering::SeqCst);
+            let _ = (self.shutdown)();
+        }
+    }
+}
 pub fn run_packet_pump<I, H, S>(
     io: &mut I,
     handler: &mut H,
@@ -122,7 +199,11 @@ where
     let mut address = WindivertAddress::default();
 
     while !should_stop(&stats) {
-        let packet_len = io.recv_packet(&mut packet, &mut address)?;
+        let packet_len = match io.recv_packet(&mut packet, &mut address) {
+            Ok(packet_len) => packet_len,
+            Err(_) if should_stop(&stats) => break,
+            Err(error) => return Err(error),
+        };
         stats.received = stats.received.saturating_add(1);
         let packet = &mut packet[..packet_len];
 
@@ -307,6 +388,28 @@ fn send_complete_packet<I: PacketIo>(
     Ok(())
 }
 
+impl PacketIo for WindivertOwnedSession {
+    fn recv_packet(
+        &mut self,
+        packet: &mut [u8],
+        address: &mut WindivertAddress,
+    ) -> Result<usize, String> {
+        WindivertOwnedSession::recv_packet(self, packet, address)
+    }
+
+    fn send_packet(&mut self, packet: &[u8], address: &WindivertAddress) -> Result<usize, String> {
+        WindivertOwnedSession::send_packet(self, packet, address)
+    }
+
+    fn calc_checksums(
+        &mut self,
+        packet: &mut [u8],
+        address: &mut WindivertAddress,
+    ) -> Result<(), String> {
+        WindivertOwnedSession::calc_checksums(self, packet, address)
+    }
+}
+
 impl PacketIo for WindivertSession<'_> {
     fn recv_packet(
         &mut self,
@@ -372,7 +475,9 @@ mod tests {
     use std::collections::VecDeque;
     use std::fs;
     use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::thread;
 
     use crate::backend::{BackendStatus, CaptureBackend};
     use crate::process_context::{FlowContextCache, PacketProcessContext};
@@ -384,7 +489,7 @@ mod tests {
 
     use super::{
         run_packet_pump, ControllerPacketHandler, PacketDisposition, PacketHandler, PacketIo,
-        SharedControllerPacketHandler, WindivertAddress, WindivertProbe,
+        PacketWorker, SharedControllerPacketHandler, WindivertAddress, WindivertProbe,
     };
 
     #[test]
@@ -503,6 +608,30 @@ mod tests {
         assert_eq!(disposition, PacketDisposition::ForwardRecalculateChecksums);
         assert_eq!(controller.lock().unwrap().flow_count(), 1);
     }
+    #[test]
+    fn packet_worker_shutdown_unblocks_recv_and_returns_stats() {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let shutdown_called = Arc::new(AtomicBool::new(false));
+        let io = BlockingFakePacketIo::new(vec![vec![1, 2, 3]], Arc::clone(&stopped));
+        let handler = StaticHandler::new(PacketDisposition::ForwardUnchanged);
+        let worker = PacketWorker::spawn(io, handler, {
+            let stopped = Arc::clone(&stopped);
+            let shutdown_called = Arc::clone(&shutdown_called);
+            move || {
+                shutdown_called.store(true, Ordering::SeqCst);
+                stopped.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+        });
+
+        thread::sleep(std::time::Duration::from_millis(50));
+        worker.request_stop().unwrap();
+        let stats = worker.join().unwrap();
+
+        assert!(shutdown_called.load(Ordering::SeqCst));
+        assert_eq!(stats.received, 1);
+        assert_eq!(stats.sent, 1);
+    }
     fn controller_with_app_rule(outlet: Outlet) -> crate::control::ServiceController {
         let mut config = RouteConfig::enabled();
         config
@@ -604,6 +733,53 @@ mod tests {
             if !matches!(decision.action, RouteAction::UseSystemDefault) {
                 self.active_flows += 1;
             }
+        }
+    }
+
+    struct BlockingFakePacketIo {
+        recv_packets: VecDeque<Vec<u8>>,
+        sent_packets: Vec<Vec<u8>>,
+        stopped: Arc<AtomicBool>,
+    }
+
+    impl BlockingFakePacketIo {
+        fn new(packets: Vec<Vec<u8>>, stopped: Arc<AtomicBool>) -> Self {
+            Self { recv_packets: VecDeque::from(packets), sent_packets: Vec::new(), stopped }
+        }
+    }
+
+    impl PacketIo for BlockingFakePacketIo {
+        fn recv_packet(
+            &mut self,
+            packet: &mut [u8],
+            _address: &mut WindivertAddress,
+        ) -> Result<usize, String> {
+            if let Some(next) = self.recv_packets.pop_front() {
+                packet[..next.len()].copy_from_slice(&next);
+                return Ok(next.len());
+            }
+
+            while !self.stopped.load(Ordering::SeqCst) {
+                thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(String::from("fake recv interrupted"))
+        }
+
+        fn send_packet(
+            &mut self,
+            packet: &[u8],
+            _address: &WindivertAddress,
+        ) -> Result<usize, String> {
+            self.sent_packets.push(packet.to_vec());
+            Ok(packet.len())
+        }
+
+        fn calc_checksums(
+            &mut self,
+            _packet: &mut [u8],
+            _address: &mut WindivertAddress,
+        ) -> Result<(), String> {
+            Ok(())
         }
     }
 

@@ -2,6 +2,7 @@
 
 use std::ffi::{c_char, c_void, CString};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use libloading::Library;
 use linkroute_core::PacketDirection;
@@ -69,6 +70,7 @@ impl Default for WindivertAddress {
 
 type RawOpen = unsafe extern "system" fn(*const c_char, u32, i16, u64) -> WindivertHandle;
 type RawClose = unsafe extern "system" fn(WindivertHandle) -> i32;
+type RawShutdown = unsafe extern "system" fn(WindivertHandle, u32) -> i32;
 type RawRecv =
     unsafe extern "system" fn(WindivertHandle, *mut c_void, u32, *mut u32, *mut c_void) -> i32;
 type RawSend =
@@ -84,6 +86,13 @@ pub enum WindivertLayer {
     Reflect = 4,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindivertShutdown {
+    Recv = 1,
+    Send = 2,
+    Both = 3,
+}
+
 const INVALID_HANDLE_VALUE: WindivertHandle = -1;
 
 pub struct WindivertRuntime {
@@ -91,6 +100,7 @@ pub struct WindivertRuntime {
     _library: Library,
     open: RawOpen,
     close: RawClose,
+    shutdown: RawShutdown,
     recv: RawRecv,
     send: RawSend,
     calc_checksums: RawCalcChecksums,
@@ -110,6 +120,8 @@ impl WindivertRuntime {
             .map_err(|error| error.to_string())?;
         let close = *unsafe { library.get::<RawClose>(b"WinDivertClose\0") }
             .map_err(|error| error.to_string())?;
+        let shutdown = *unsafe { library.get::<RawShutdown>(b"WinDivertShutdown\0") }
+            .map_err(|error| error.to_string())?;
         let recv = *unsafe { library.get::<RawRecv>(b"WinDivertRecv\0") }
             .map_err(|error| error.to_string())?;
         let send = *unsafe { library.get::<RawSend>(b"WinDivertSend\0") }
@@ -118,7 +130,7 @@ impl WindivertRuntime {
             *unsafe { library.get::<RawCalcChecksums>(b"WinDivertHelperCalcChecksums\0") }
                 .map_err(|error| error.to_string())?;
 
-        Ok(Self { dll_path, _library: library, open, close, recv, send, calc_checksums })
+        Ok(Self { dll_path, _library: library, open, close, shutdown, recv, send, calc_checksums })
     }
 
     pub fn dll_path(&self) -> &Path {
@@ -132,13 +144,47 @@ impl WindivertRuntime {
         priority: i16,
         flags: u64,
     ) -> Result<WindivertSession<'_>, String> {
+        Ok(WindivertSession {
+            runtime: self,
+            handle: self.open_handle(filter, layer, priority, flags)?,
+        })
+    }
+
+    pub fn open_owned(
+        runtime: Arc<Self>,
+        filter: &str,
+        layer: WindivertLayer,
+        priority: i16,
+        flags: u64,
+    ) -> Result<WindivertOwnedSession, String> {
+        let handle = runtime.open_handle(filter, layer, priority, flags)?;
+        Ok(WindivertOwnedSession { runtime, handle })
+    }
+
+    fn open_handle(
+        &self,
+        filter: &str,
+        layer: WindivertLayer,
+        priority: i16,
+        flags: u64,
+    ) -> Result<WindivertHandle, String> {
         let filter = CString::new(filter).map_err(|_| String::from("filter contains NUL byte"))?;
         let handle = unsafe { (self.open)(filter.as_ptr(), layer as u32, priority, flags) };
         if handle == INVALID_HANDLE_VALUE {
             return Err(format!("WinDivertOpen failed: {}", std::io::Error::last_os_error()));
         }
+        Ok(handle)
+    }
 
-        Ok(WindivertSession { runtime: self, handle })
+    pub fn shutdown_handle(
+        &self,
+        handle: WindivertHandle,
+        how: WindivertShutdown,
+    ) -> Result<(), String> {
+        if unsafe { (self.shutdown)(handle, how as u32) } == 0 {
+            return Err(format!("WinDivertShutdown failed: {}", std::io::Error::last_os_error()));
+        }
+        Ok(())
     }
 
     pub fn calc_checksums(
@@ -164,7 +210,7 @@ impl WindivertRuntime {
     }
 
     pub fn resolved_symbol_count(&self) -> usize {
-        5
+        6
     }
 }
 
@@ -178,42 +224,20 @@ impl WindivertSession<'_> {
         self.handle
     }
 
+    pub fn shutdown(&self, how: WindivertShutdown) -> Result<(), String> {
+        self.runtime.shutdown_handle(self.handle, how)
+    }
+
     pub fn recv_packet(
         &self,
         packet: &mut [u8],
         address: &mut WindivertAddress,
     ) -> Result<usize, String> {
-        let mut recv_len = 0_u32;
-        if unsafe {
-            (self.runtime.recv)(
-                self.handle,
-                packet.as_mut_ptr().cast(),
-                packet.len() as u32,
-                &mut recv_len,
-                address.as_mut_ptr(),
-            )
-        } == 0
-        {
-            return Err(format!("WinDivertRecv failed: {}", std::io::Error::last_os_error()));
-        }
-        Ok(recv_len as usize)
+        recv_packet(self.runtime.recv, self.handle, packet, address)
     }
 
     pub fn send_packet(&self, packet: &[u8], address: &WindivertAddress) -> Result<usize, String> {
-        let mut send_len = 0_u32;
-        if unsafe {
-            (self.runtime.send)(
-                self.handle,
-                packet.as_ptr().cast(),
-                packet.len() as u32,
-                &mut send_len,
-                address.as_ptr(),
-            )
-        } == 0
-        {
-            return Err(format!("WinDivertSend failed: {}", std::io::Error::last_os_error()));
-        }
-        Ok(send_len as usize)
+        send_packet(self.runtime.send, self.handle, packet, address)
     }
 
     pub fn calc_checksums(
@@ -233,6 +257,107 @@ impl Drop for WindivertSession<'_> {
     }
 }
 
+pub struct WindivertOwnedSession {
+    runtime: Arc<WindivertRuntime>,
+    handle: WindivertHandle,
+}
+
+impl WindivertOwnedSession {
+    pub fn handle(&self) -> WindivertHandle {
+        self.handle
+    }
+
+    pub fn stopper(&self) -> WindivertSessionStopper {
+        WindivertSessionStopper { runtime: Arc::clone(&self.runtime), handle: self.handle }
+    }
+
+    pub fn shutdown(&self, how: WindivertShutdown) -> Result<(), String> {
+        self.runtime.shutdown_handle(self.handle, how)
+    }
+
+    pub fn recv_packet(
+        &self,
+        packet: &mut [u8],
+        address: &mut WindivertAddress,
+    ) -> Result<usize, String> {
+        recv_packet(self.runtime.recv, self.handle, packet, address)
+    }
+
+    pub fn send_packet(&self, packet: &[u8], address: &WindivertAddress) -> Result<usize, String> {
+        send_packet(self.runtime.send, self.handle, packet, address)
+    }
+
+    pub fn calc_checksums(
+        &self,
+        packet: &mut [u8],
+        address: &mut WindivertAddress,
+    ) -> Result<(), String> {
+        self.runtime.calc_checksums(packet, address)
+    }
+}
+
+impl Drop for WindivertOwnedSession {
+    fn drop(&mut self) {
+        unsafe {
+            (self.runtime.close)(self.handle);
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct WindivertSessionStopper {
+    runtime: Arc<WindivertRuntime>,
+    handle: WindivertHandle,
+}
+
+impl WindivertSessionStopper {
+    pub fn shutdown_recv(&self) -> Result<(), String> {
+        self.runtime.shutdown_handle(self.handle, WindivertShutdown::Recv)
+    }
+
+    pub fn shutdown_both(&self) -> Result<(), String> {
+        self.runtime.shutdown_handle(self.handle, WindivertShutdown::Both)
+    }
+}
+
+fn recv_packet(
+    recv: RawRecv,
+    handle: WindivertHandle,
+    packet: &mut [u8],
+    address: &mut WindivertAddress,
+) -> Result<usize, String> {
+    let mut recv_len = 0_u32;
+    if unsafe {
+        recv(
+            handle,
+            packet.as_mut_ptr().cast(),
+            packet.len() as u32,
+            &mut recv_len,
+            address.as_mut_ptr(),
+        )
+    } == 0
+    {
+        return Err(format!("WinDivertRecv failed: {}", std::io::Error::last_os_error()));
+    }
+    Ok(recv_len as usize)
+}
+
+fn send_packet(
+    send: RawSend,
+    handle: WindivertHandle,
+    packet: &[u8],
+    address: &WindivertAddress,
+) -> Result<usize, String> {
+    let mut send_len = 0_u32;
+    if unsafe {
+        send(handle, packet.as_ptr().cast(), packet.len() as u32, &mut send_len, address.as_ptr())
+    } == 0
+    {
+        return Err(format!("WinDivertSend failed: {}", std::io::Error::last_os_error()));
+    }
+    Ok(send_len as usize)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -240,7 +365,8 @@ mod tests {
     use linkroute_core::PacketDirection;
 
     use super::{
-        WindivertAddress, WindivertRuntime, IPV6_FLAG, OUTBOUND_FLAG, WINDIVERT_ADDRESS_SIZE,
+        WindivertAddress, WindivertRuntime, WindivertShutdown, IPV6_FLAG, OUTBOUND_FLAG,
+        WINDIVERT_ADDRESS_SIZE,
     };
 
     #[test]
@@ -272,5 +398,12 @@ mod tests {
         assert_eq!(address.direction(), PacketDirection::Outbound);
         assert!(address.is_ipv6());
         assert_eq!(WindivertAddress::with_flags(0).direction(), PacketDirection::Inbound);
+    }
+
+    #[test]
+    fn shutdown_values_match_windivert_header() {
+        assert_eq!(WindivertShutdown::Recv as u32, 1);
+        assert_eq!(WindivertShutdown::Send as u32, 2);
+        assert_eq!(WindivertShutdown::Both as u32, 3);
     }
 }
